@@ -1,0 +1,1 @@
+/usr/bin/cc -O3 -DNDEBUG -rdynamic CMakeFiles/visualinfo.dir/home/yilmaz/CLionProjects/Project-MB/libs/glew/src/visualinfo.c.o -o bin/visualinfo  -Wl,-rpath,/home/yilmaz/CLionProjects/Project-MB/libs/glew/build/lib: lib/libGLEW.so.2.1.0 -lX11 -lXext -lGL -lGLU 

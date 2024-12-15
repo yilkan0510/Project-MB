@@ -1,0 +1,11 @@
+/home/yilmaz/CLionProjects/Project-MB/libs/glew/build/CMakeFiles/glew.dir
+/home/yilmaz/CLionProjects/Project-MB/libs/glew/build/CMakeFiles/glew_s.dir
+/home/yilmaz/CLionProjects/Project-MB/libs/glew/build/CMakeFiles/glewinfo.dir
+/home/yilmaz/CLionProjects/Project-MB/libs/glew/build/CMakeFiles/visualinfo.dir
+/home/yilmaz/CLionProjects/Project-MB/libs/glew/build/CMakeFiles/uninstall.dir
+/home/yilmaz/CLionProjects/Project-MB/libs/glew/build/CMakeFiles/edit_cache.dir
+/home/yilmaz/CLionProjects/Project-MB/libs/glew/build/CMakeFiles/rebuild_cache.dir
+/home/yilmaz/CLionProjects/Project-MB/libs/glew/build/CMakeFiles/list_install_components.dir
+/home/yilmaz/CLionProjects/Project-MB/libs/glew/build/CMakeFiles/install.dir
+/home/yilmaz/CLionProjects/Project-MB/libs/glew/build/CMakeFiles/install/local.dir
+/home/yilmaz/CLionProjects/Project-MB/libs/glew/build/CMakeFiles/install/strip.dir

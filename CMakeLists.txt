@@ -47,4 +47,3 @@ file(GLOB IMGUI_BACKEND_SOURCES
         ${CMAKE_SOURCE_DIR}/libs/imgui/*.cpp
 )
 target_sources(CFG_Visualization PRIVATE ${IMGUI_BACKEND_SOURCES})
-

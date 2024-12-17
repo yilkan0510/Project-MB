@@ -21,7 +21,9 @@ add_definitions(-DIMGUI_IMPL_OPENGL_LOADER_GLEW)
 file(GLOB_RECURSE SOURCES ${CMAKE_SOURCE_DIR}/src/*.cpp)
 
 # Create the executable
-add_executable(CFG_Visualization ${SOURCES})
+add_executable(CFG_Visualization ${SOURCES}
+        src/EarlyParser.cpp
+        src/EarlyParser.h)
 
 # Link directories for libraries
 target_link_directories(CFG_Visualization PRIVATE

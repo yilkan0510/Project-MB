@@ -28,11 +28,15 @@ private:
     void replaceTerminalsInBadBodies();
     void breakLongBodies();
 
+    void generateParsePaths(const string &current, const string &target, vector<string> &paths, string path);
+
 public:
     CFG(string Filename);
 
     void print();
     void toCNF(); // Voegt de CNF-conversiemethode toe
+
+    bool isAmbiguous(const string &testString);
 };
 
 #endif //PROGRAMEEROPDRACHT1_CFG_H

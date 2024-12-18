@@ -58,8 +58,44 @@ GLuint loadTexture(const std::string& imagePath) {
     return textureID;
 }
 
+/*
 int main() {
-    GLRParser parser("./src/JSON/CFG1.json");
+    GLRParser parser("../src/JSON/CFG1.json");
     parser.parse({"a","b","0"});
     return 0;
+}
+*/
+
+int main() {
+  // Test the trivial unambiguous CFG
+  CFG cfg_unambiguous("../src/JSON/input-unambiguous.json");
+  std::string testString1 = "a";
+  std::cout << "Testing ambiguity for unambiguous grammar with string: " << testString1 << std::endl;
+  if (cfg_unambiguous.isAmbiguous(testString1)) {
+    std::cout << "The CFG is ambiguous for the string \"" << testString1 << "\"" << std::endl;
+  } else {
+    std::cout << "The CFG is not ambiguous for the string \"" << testString1 << "\"" << std::endl;
+  }
+
+  // Test the first ambiguous CFG (no epsilon)
+  CFG cfg_ambiguous("../src/JSON/input-ambiguous.json");
+  std::string testString2 = "aa";
+  std::cout << "\nTesting ambiguity for the first ambiguous grammar with string: " << testString2 << std::endl;
+  if (cfg_ambiguous.isAmbiguous(testString2)) {
+    std::cout << "The CFG is ambiguous for the string \"" << testString2 << "\"" << std::endl;
+  } else {
+    std::cout << "The CFG is not ambiguous for the string \"" << testString2 << "\"" << std::endl;
+  }
+
+  // Test the second ambiguous CFG (with epsilon)
+  CFG cfg_ambiguous2("../src/JSON/input-ambiguous-2.json");
+  std::string testString3 = "aa";
+  std::cout << "\nTesting ambiguity for the second ambiguous grammar with string: " << testString3 << std::endl;
+  if (cfg_ambiguous2.isAmbiguous(testString3)) {
+    std::cout << "The CFG is ambiguous for the string \"" << testString3 << "\"" << std::endl;
+  } else {
+    std::cout << "The CFG is not ambiguous for the string \"" << testString3 << "\"" << std::endl;
+  }
+
+  return 0;
 }

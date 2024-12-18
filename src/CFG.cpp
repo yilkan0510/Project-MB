@@ -30,9 +30,6 @@ CFG::CFG(string Filename) {
 
         for (int i = 0; i < production["body"].size(); ++i) {
             body += production["body"][i].get<string>();
-            if (i != production["body"].size() - 1) {
-                body += " ";
-            }
         }
 
         // Add the production rule to the map
@@ -564,3 +561,52 @@ void CFG::toCNF() {
     cout << ">>> Result CFG:\n\n";
     print();
 }
+
+void CFG::generateParsePaths(const string &current, const string &target, vector<string> &paths, string path) {
+  // If we have reached the target, add the current path to the result
+  if (current == target) {
+    paths.push_back(path);
+    return;
+  }
+
+  // Iterate through production rules
+  for (const auto &rule : productionRules) {
+    size_t pos = current.find(rule.first);  // Find all occurrences of the non-terminal
+    while (pos != string::npos) {
+      for (const auto &body : rule.second) {
+        string next = current;
+
+        // If body is empty (A -> ε), replace the non-terminal with an empty string
+        if (body.empty()) {
+          next.replace(pos, rule.first.length(), "");
+          string newPath = path + rule.first + "->ε" + "; ";  // Log ε production
+          generateParsePaths(next, target, paths, newPath);
+        } else {
+          next.replace(pos, rule.first.length(), body);
+          string newPath = path + rule.first + "->" + body + "; ";
+          generateParsePaths(next, target, paths, newPath);
+        }
+      }
+      pos = current.find(rule.first, pos + 1);  // Continue searching after the current position
+    }
+  }
+}
+
+bool CFG::isAmbiguous(const string &testString) {
+  vector<string> paths;
+
+  // Generate all possible derivation paths
+  generateParsePaths(startSymbol, testString, paths, "");
+
+  // Print all paths for debugging
+  cout << "Derivation paths for \"" << testString << "\":" << endl;
+  for (const auto &path : paths) {
+    cout << path << endl;
+  }
+
+  // If there are more than one distinct derivation path, the CFG is ambiguous
+  return paths.size() > 1;
+}
+
+
+

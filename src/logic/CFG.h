@@ -37,6 +37,23 @@ public:
     void toCNF(); // Voegt de CNF-conversiemethode toe
 
     bool isAmbiguous(const string &testString);
+
+    [[nodiscard]] string getStartSymbol();
+
+    void setStartSymbol(const string &symbol);
+
+    [[nodiscard]] set<char> getTerminals();
+
+    void getTerminals(const string &symbol);
+
+    [[nodiscard]] set<string> getNonTerminals();
+
+    void setNonTerminals(const string &symbol);
+
+    [[nodiscard]] map<string, vector<string>> getProductionRules();
+
+    void setProductionRules(const string &symbol);
+
 };
 
 #endif //PROGRAMEEROPDRACHT1_CFG_H

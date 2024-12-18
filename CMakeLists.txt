@@ -22,8 +22,8 @@ file(GLOB_RECURSE SOURCES ${CMAKE_SOURCE_DIR}/src/*.cpp)
 
 # Create the executable
 add_executable(CFG_Visualization ${SOURCES}
-        src/EarlyParser.cpp
-        src/EarlyParser.h)
+        src/logic/EarleyParser.cpp
+        src/logic/EarleyParser.h)
 
 # Link directories for libraries
 target_link_directories(CFG_Visualization PRIVATE

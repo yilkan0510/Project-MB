@@ -608,5 +608,15 @@ bool CFG::isAmbiguous(const string &testString) {
   return paths.size() > 1;
 }
 
+string CFG::getStartSymbol()
+{
+    return startSymbol;
+}
+
+void CFG::setStartSymbol(const string& symbol)
+{
+    startSymbol = symbol;
+}
+
 
 

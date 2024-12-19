@@ -608,10 +608,22 @@ bool CFG::isAmbiguous(const string &testString) {
   return paths.size() > 1;
 }
 
-string CFG::getStartSymbol()
-{
-    return startSymbol;
+const map<string, vector<string>>& CFG::getProductionRules() const {
+  return productionRules;
 }
+
+const set<string>& CFG::getNonTerminals() const {
+  return nonTerminals;
+}
+
+const set<char>& CFG::getTerminals() const {
+  return terminals;
+}
+
+const string& CFG::getStartSymbol() const {
+  return startSymbol;
+}
+
 
 void CFG::setStartSymbol(const string& symbol)
 {

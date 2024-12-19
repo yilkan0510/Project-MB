@@ -7,6 +7,7 @@
 #include <fstream>
 #include <string>
 #include "GLRParser.h"
+#include "EarleyParser.h"
 // stb_image
 #define STB_IMAGE_IMPLEMENTATION
 #include "../stb/stb_image.h"
@@ -66,6 +67,10 @@ int main() {
 }
 */
 
+
+// ambigu test
+
+/*
 int main() {
   // Test the trivial unambiguous CFG
   CFG cfg_unambiguous("../src/JSON/input-unambiguous.json");
@@ -95,6 +100,27 @@ int main() {
     std::cout << "The CFG is ambiguous for the string \"" << testString3 << "\"" << std::endl;
   } else {
     std::cout << "The CFG is not ambiguous for the string \"" << testString3 << "\"" << std::endl;
+  }
+
+  return 0;
+}
+*/
+
+int main() {
+  // Test CFG4: S->a
+  CFG cfg("../src/JSON/CFG4.json");
+//  CFG cfg("../src/JSON/CFG5.json");
+  EarleyParser earley(cfg);
+  GLRParser glr(cfg);
+
+  std::vector<std::string> testInputs = {"", "a", "b", "aa", "ab"};
+
+  for (auto &input : testInputs) {
+    std::cout << "Input: \"" << input << "\"\n";
+    bool eRes = earley.parse(input);
+    std::cout << "  Earley: " << (eRes ? "Accepted" : "Rejected") << "\n";
+    bool gRes = glr.parse(input);
+    std::cout << "  GLR:    " << (gRes ? "Accepted" : "Rejected") << "\n\n";
   }
 
   return 0;

@@ -8,17 +8,14 @@
 #include <set>
 #include <iomanip>
 #include <fstream>
-#include "json.hpp"
+#include "../json.hpp"
 
 using namespace std;
 using namespace nlohmann;
 
 class CFG {
 private:
-    set<string> nonTerminals;
-    set<char> terminals;
-    map<string, vector<string>> productionRules;
-    string startSymbol;
+  string startSymbol;
     int postUnitProdCount;
     int postUselessProdCount;
 
@@ -38,22 +35,18 @@ public:
 
     bool isAmbiguous(const string &testString);
 
-    [[nodiscard]] string getStartSymbol();
-
     void setStartSymbol(const string &symbol);
 
-    [[nodiscard]] set<char> getTerminals();
+    const map<string, vector<string>>& getProductionRules() const;
+    const set<string>& getNonTerminals() const;
+    const set<char>& getTerminals() const;
+    const string& getStartSymbol() const;
 
-    void getTerminals(const string &symbol);
 
-    [[nodiscard]] set<string> getNonTerminals();
 
-    void setNonTerminals(const string &symbol);
-
-    [[nodiscard]] map<string, vector<string>> getProductionRules();
-
-    void setProductionRules(const string &symbol);
-
+    set<string> nonTerminals;
+    set<char> terminals;
+    map<string, vector<string>> productionRules;
 };
 
 #endif //PROGRAMEEROPDRACHT1_CFG_H

@@ -1,72 +1,83 @@
-//
-// Created by manaci4466 on 12/15/24.
-//
-
 #ifndef GLRPARSER_H
 #define GLRPARSER_H
 
-#include <iostream>
-#include <utility>
-#include <vector>
+#include "CFG.h"
 #include <string>
-#include <memory> // For std::unique_ptr
+#include <vector>
 #include <map>
 #include <set>
-#include <fstream>
-#include "CFG.h"
-#include "json.hpp"
+#include <memory>
 
-using json = nlohmann::json;
-
-struct Rule {
-    int id;
-    std::string head;
-    std::vector<std::string> body;
+struct GLRRule {
+  std::string head;
+  std::vector<std::string> body;
+  int id;
 };
 
-struct ParseState {
-    int state;
-    std::vector<std::string> stack;
-    int position;
+struct LRItem {
+  int ruleId;
+  size_t dotPos;
+  bool operator<(const LRItem &o) const {
+    if (ruleId != o.ruleId) return ruleId < o.ruleId;
+    return dotPos < o.dotPos;
+  }
+  bool operator==(const LRItem &o) const {
+    return ruleId == o.ruleId && dotPos == o.dotPos;
+  }
 };
 
-struct TreeNode {
-    std::string value;
-    std::vector<std::unique_ptr<TreeNode>> children;
-
-    explicit TreeNode(std::string val) : value(std::move(val)) {}
-
-    // Recursively print the tree
-    void printTree(int depth = 0) const {
-        for (int i = 0; i < depth; ++i) std::cout << "  ";
-        std::cout << value << std::endl;
-        for (const auto &child : children) {
-            child->printTree(depth + 1);
-        }
-    }
+struct LRState {
+  std::set<LRItem> items;
+  bool operator<(const LRState &o) const {
+    if (items.size() < o.items.size()) return true;
+    if (items.size() > o.items.size()) return false;
+    return std::lexicographical_compare(items.begin(), items.end(), o.items.begin(), o.items.end());
+  }
+  bool operator==(const LRState &o) const {
+    return items == o.items;
+  }
 };
 
-using Chart = std::vector<std::vector<ParseState>>;
+enum class ActionType { Shift, Reduce, Accept, Error };
+
+struct LRAction {
+  ActionType type;
+  int stateOrRule;
+};
+
+struct GSSNode {
+  int state;
+  std::vector<std::shared_ptr<GSSNode>> preds;
+};
 
 class GLRParser {
 public:
-    explicit GLRParser(const std::vector<Rule> &rules);
-
-    explicit GLRParser(const std::string &filename);
-
-    void parse(const std::vector<std::string> &tokens);
-
-    void loadGrammar(const std::string &filename);
+  GLRParser(const CFG &cfg);
+  bool parse(const std::string &input);
 
 private:
-    std::vector<Rule> grammar;
+  const CFG &cfg;
+  std::string startSymbol;
+  std::set<std::string> nonTerminals;
+  std::set<char> terminals;
+  std::vector<GLRRule> rules;
+  std::vector<LRState> states;
+  std::map<std::pair<int,std::string>,int> gotoTable;
+  std::map<std::pair<int,char>,LRAction> actionTable;
 
-    void processState(const ParseState &state, const std::vector<std::string> &tokens, Chart &chart, int pos);
+  bool isNonTerminal(const std::string &sym) const;
+  bool isTerminal(char sym) const;
 
-    void finalize(const std::vector<ParseState> &finalStates);
+  void buildRules();
+  LRState closure(const LRState &I);
+  LRState go(const LRState &I, const std::string &X);
+  int findOrAddState(const LRState &st);
+  void buildLR0Automaton();
+  void buildTables();
+  bool glrParse(const std::string &input);
 
-    std::unique_ptr<TreeNode> buildParseTree(const std::vector<std::string> &stack);
+  void performShift(std::vector<std::shared_ptr<GSSNode>> &tops, int nextState);
+  std::vector<std::shared_ptr<GSSNode>> performReduce(std::vector<std::shared_ptr<GSSNode>> &tops, int ruleId);
 };
 
-
-#endif //GLRPARSER_H
+#endif

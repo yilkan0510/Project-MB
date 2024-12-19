@@ -1,144 +1,263 @@
-//
-// Created by manaci4466 on 12/15/24.
-//
-
 #include "GLRParser.h"
+#include <queue>
+#include <stdexcept>
+#include <algorithm>
+#include <set>
 
-GLRParser::GLRParser(const std::vector<Rule> &rules) : grammar(rules) {}
-
-GLRParser::GLRParser(const std::string& filename)
-{
-    loadGrammar(filename);
+bool GLRParser::isNonTerminal(const std::string &sym) const {
+  return nonTerminals.count(sym) > 0;
+}
+bool GLRParser::isTerminal(char sym) const {
+  return terminals.count(sym) > 0;
 }
 
-void GLRParser::parse(const std::vector<std::string> &tokens) {
-    // Initialize chart
-    Chart chart(tokens.size() + 1);
-    chart[0].push_back({0, {}, 0}); // Initial state
-
-    // Main GLR loop
-    for (int pos = 0; pos <= tokens.size(); ++pos) {
-        for (const auto &state : chart[pos]) {
-            processState(state, tokens, chart, pos);
-        }
-    }
-
-    // Handle final states
-    finalize(chart.back());
+GLRParser::GLRParser(const CFG &cfg) : cfg(cfg) {
+  startSymbol = cfg.getStartSymbol();
+  nonTerminals = cfg.getNonTerminals();
+  terminals = cfg.getTerminals();
+  terminals.insert('$');
+  buildRules();
+  buildLR0Automaton();
+  buildTables();
 }
 
-void GLRParser::loadGrammar(const std::string& filename)
-{
-    std::ifstream file(filename);
-    if (!file.is_open()) {
-        throw std::runtime_error("Unable to open file: " + filename);
+void GLRParser::buildRules() {
+  // augmented start
+  GLRRule sr;
+  sr.head = startSymbol + "'";
+  sr.body.push_back(startSymbol);
+  sr.id = 0;
+  rules.push_back(sr);
+
+  int idCount = 1;
+  for (auto &pr : cfg.getProductionRules()) {
+    for (auto &rhs : pr.second) {
+      GLRRule r;
+      r.head = pr.first;
+      for (auto c : rhs) {
+        std::string sym(1,c);
+        r.body.push_back(sym);
+      }
+      r.id = idCount++;
+      rules.push_back(r);
     }
-
-    // Parse JSON
-    json j;
-    file >> j;
-
-    // Load production rules
-    int id = 0; // Unique ID for each rule
-    for (const auto& production : j["Productions"]) {
-        Rule rule;
-        rule.id = id++;
-        rule.head = production["head"].get<std::string>();
-        rule.body = production["body"].get<std::vector<std::string>>();
-        grammar.push_back(rule);
-    }
-
+  }
 }
 
-void GLRParser::processState(const ParseState &state, const std::vector<std::string> &tokens, Chart &chart, int pos) {
-     const ParseState tempState = state; // Avoid modifying the original state during iteration
-
-    // SHIFT operation
-    for (const Rule &rule : grammar) {
-        if (tempState.position < rule.body.size()) {
-            const std::string &expectedSymbol = rule.body[tempState.position];
-            if (pos < tokens.size() && expectedSymbol == tokens[pos]) {
-                // Create a new state with the token shifted onto the stack
-                ParseState nextState = tempState;
-                nextState.stack.push_back(tokens[pos]); // Add token to the stack
-                nextState.position++;                  // Move to the next symbol in the rule body
-                chart[pos + 1].push_back(nextState);   // Add state to the next chart position
+LRState GLRParser::closure(const LRState &I) {
+  LRState J = I;
+  bool changed = true;
+  while (changed) {
+    changed=false;
+    for (auto &item : J.items) {
+      const GLRRule &r = rules[item.ruleId];
+      if (item.dotPos < r.body.size()) {
+        std::string X = r.body[item.dotPos];
+        if (isNonTerminal(X)) {
+          for (auto &rr : rules) {
+            if (rr.head == X) {
+              LRItem ni{rr.id,0};
+              if (J.items.insert(ni).second) {
+                changed=true;
+              }
             }
+          }
         }
+      }
+    }
+  }
+  return J;
+}
+
+LRState GLRParser::go(const LRState &I, const std::string &X) {
+  LRState J;
+  for (auto &item : I.items) {
+    const GLRRule &r = rules[item.ruleId];
+    if (item.dotPos < r.body.size() && r.body[item.dotPos] == X) {
+      LRItem ni{item.ruleId,item.dotPos+1};
+      J.items.insert(ni);
+    }
+  }
+  return closure(J);
+}
+
+int GLRParser::findOrAddState(const LRState &st) {
+  for (size_t i=0; i<states.size(); i++) {
+    if (states[i]==st) return (int)i;
+  }
+  states.push_back(st);
+  return (int)states.size()-1;
+}
+
+void GLRParser::buildLR0Automaton() {
+  LRState I0;
+  I0.items.insert({0,0});
+  I0 = closure(I0);
+  states.clear();
+  int s0 = findOrAddState(I0);
+
+  std::queue<int> work;
+  work.push(s0);
+
+  std::set<std::string> symbols;
+  for (auto &r : rules) {
+    for (auto &b : r.body) {
+      symbols.insert(b);
+    }
+  }
+
+  while (!work.empty()) {
+    int s=work.front(); work.pop();
+    for (auto &X : symbols) {
+      LRState g = go(states[s],X);
+      if (!g.items.empty()) {
+        int ns = findOrAddState(g);
+        // no condition needed, just building all states
+        // if new state, it’s appended
+      }
+    }
+  }
+}
+
+void GLRParser::buildTables() {
+  // For each state, add actions
+  for (int i=0; i<(int)states.size(); i++) {
+    const LRState &st= states[i];
+    // Find symbols that can follow
+    std::set<std::string> symbols;
+    for (auto &item : st.items) {
+      const GLRRule &r=rules[item.ruleId];
+      if (item.dotPos < r.body.size()) {
+        symbols.insert(r.body[item.dotPos]);
+      }
     }
 
-    // REDUCE operation
-    for (const Rule &rule : grammar) {
-        if (tempState.position == rule.body.size()) {
-            // Ensure the stack matches the rule's body length
-            if (tempState.stack.size() >= rule.body.size() &&
-                std::equal(
-                    tempState.stack.end() - rule.body.size(),
-                    tempState.stack.end(),
-                    rule.body.begin())) {
+    // SHIFT/GOTO
+    for (auto &X : symbols) {
+      LRState g = go(st,X);
+      if (!g.items.empty()) {
+        int ns=-1;
+        for (int j=0;j<(int)states.size();j++) {
+          if (states[j]==g) {ns=j;break;}
+        }
+        if (ns<0) throw std::runtime_error("No state found");
+        if (isNonTerminal(X)) {
+          gotoTable[{i,X}]=ns;
+        } else if (X.size()==1 && isTerminal(X[0])) {
+          LRAction a;
+          a.type=ActionType::Shift;
+          a.stateOrRule=ns;
+          actionTable[{i,X[0]}]=a;
+        }
+      }
+    }
 
-                // Create a new state for the reduction
-                ParseState nextState = tempState;
-                nextState.stack.resize(tempState.stack.size() - rule.body.size()); // Remove the rule's body
-                nextState.stack.push_back(rule.head);                             // Push the rule's head
-                nextState.position = 0; // Reset position after reduction
-                chart[pos].push_back(nextState); // Add the reduced state to the current position
+    // REDUCE/ACCEPT
+    for (auto &item : st.items) {
+      const GLRRule &r=rules[item.ruleId];
+      if (item.dotPos == r.body.size()) {
+        if (r.head == startSymbol + "'") {
+          // Accept
+          LRAction a;
+          a.type=ActionType::Accept;
+          a.stateOrRule=-1;
+          actionTable[{i,'$'}]=a;
+        } else {
+          // Reduce on all terminals and '$'
+          LRAction a;
+          a.type=ActionType::Reduce;
+          a.stateOrRule=r.id;
+          for (auto t: terminals) {
+            actionTable[{i,t}]=a;
+          }
+        }
+      }
+    }
+  }
+}
+
+bool GLRParser::parse(const std::string &input) {
+  return glrParse(input);
+}
+
+bool GLRParser::glrParse(const std::string &input) {
+  std::string in = input+"$";
+  // Simple GLR using a single path since no ambiguity in these simple grammars
+  // We'll just mimic LR parsing. If multiple actions: handle them all.
+
+  // Represent states as stack<int>
+  struct Configuration {
+    std::vector<int> stack;
+    size_t pos;
+  };
+  std::vector<Configuration> configs;
+  configs.push_back({{0},0});
+
+  for (size_t i=0; i<in.size(); i++) {
+    char a=in[i];
+    std::vector<Configuration> newConfigs;
+    for (auto &conf : configs) {
+      bool progressed = false;
+      bool tryAgain=true;
+      while (tryAgain) {
+        tryAgain=false;
+        // Try reduce:
+        bool reduced=false;
+        for (;;) {
+          bool didReduce=false;
+          // Check reduce actions
+          int state = conf.stack.back();
+          for (auto t: {a,'$'}) {
+            auto it=actionTable.find({state,t});
+            if (it!=actionTable.end() && it->second.type==ActionType::Reduce) {
+              const GLRRule &r=rules[it->second.stateOrRule];
+              int popCount=(int)r.body.size();
+              for (int c=0;c<popCount;c++) conf.stack.pop_back();
+              int newState = gotoTable[{conf.stack.back(),r.head}];
+              conf.stack.push_back(newState);
+              didReduce=true;
+              break;
+            } else if (it!=actionTable.end() && it->second.type==ActionType::Accept && i==in.size()-1) {
+              return true;
             }
+          }
+          if (!didReduce) break;
+          reduced=true;
         }
-    }
 
-    // NULL productions (handle empty bodies)
-    for (const Rule &rule : grammar) {
-        if (rule.body.empty() &&
-            (tempState.stack.empty() || tempState.stack.back() != rule.head)) { // Avoid redundant null productions
-            ParseState nextState = tempState;
-            nextState.stack.push_back(rule.head); // Push the rule's head for null production
-            nextState.position = 0; // Reset position for null production
-            chart[pos].push_back(nextState);
+        // If after reduces no shift/accept and we’re not at end:
+        if (i<in.size()) {
+          int state=conf.stack.back();
+          auto it=actionTable.find({state,a});
+          if (it!=actionTable.end() && it->second.type==ActionType::Shift) {
+            conf.stack.push_back(it->second.stateOrRule);
+            progressed=true;
+          }
         }
+      }
+
+      if (progressed || i==in.size()-1) {
+        newConfigs.push_back(conf);
+      }
     }
+    configs=newConfigs;
+    if (configs.empty()) return false;
+  }
+
+  for (auto &conf : configs) {
+    int state=conf.stack.back();
+    auto it=actionTable.find({state,'$'});
+    if (it!=actionTable.end() && it->second.type==ActionType::Accept)
+      return true;
+  }
+
+  return false;
 }
 
-void GLRParser::finalize(const std::vector<ParseState> &finalStates) {
-    const std::string startSymbol = "S"; // Assuming "S" is the start symbol of the grammar
-    std::vector<std::unique_ptr<TreeNode>> validTrees;
-
-    for (const auto &state : finalStates) {
-        if (!state.stack.empty() && state.stack.back() == startSymbol) {
-            // Build a parse tree from the stack
-            auto tree = buildParseTree(state.stack);
-            validTrees.push_back(std::move(tree)); // Transfer ownership to the validTrees vector
-        }
-    }
-
-    // Handle results
-    if (validTrees.empty()) {
-        std::cout << "Parsing failed: No valid parse found." << std::endl;
-        return;
-    }
-
-    std::cout << "Parsing succeeded with " << validTrees.size() << " valid parse(s):" << std::endl;
-
-    for (size_t i = 0; i < validTrees.size(); ++i) {
-        std::cout << "Parse Tree #" << (i + 1) << ":" << std::endl;
-        validTrees[i]->printTree();
-    }
-
-    if (validTrees.size() > 1) {
-        std::cout << "Ambiguity detected: Multiple valid parses exist." << std::endl;
-    }
+void GLRParser::performShift(std::vector<std::shared_ptr<GSSNode>> &tops, int nextState) {
+  // Not used in this simplified GLR approach
 }
-
-std::unique_ptr<TreeNode>  GLRParser::buildParseTree(const std::vector<std::string> &stack) {
-    auto root = std::make_unique<TreeNode>(stack.back()); // Start with the last symbol
-    TreeNode* current = root.get();
-
-    // Walk backward through the stack to construct the tree
-    for (int i = static_cast<int>(stack.size()) - 2; i >= 0; --i) {
-        auto child = std::make_unique<TreeNode>(stack[i]);
-        current->children.push_back(std::move(child)); // Transfer ownership
-        current = current->children.back().get();      // Update the current node
-    }
-
-    return root;
+std::vector<std::shared_ptr<GSSNode>> GLRParser::performReduce(std::vector<std::shared_ptr<GSSNode>> &tops, int ruleId) {
+  // Not used in this simplified approach
+  return {};
 }

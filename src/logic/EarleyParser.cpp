@@ -33,6 +33,10 @@ void EarleyParser::reset(const std::string &input) {
 bool EarleyParser::nextStep() {
   if (finished) return false;
 
+  // Before performing any logic, you know what position you're at:
+  // You can mention what you're about to do: scan if possible, or finish.
+  // But the actual explanation should come after you do the step.
+
   if (currentPos < currentInput.size()) {
     // SCAN step
     char c = currentInput[currentPos];
@@ -48,36 +52,54 @@ bool EarleyParser::nextStep() {
       }
     }
     applyPredictComplete(currentPos+1);
+    // Explanation for this step:
+    stepExplanations.push_back("Earley: Scanned character '" + std::string(1,c) +
+                               "' at position " + std::to_string(currentPos) +
+                               " and applied predict/complete rules.");
+
     currentPos++;
   } else {
-    // No more characters to scan
+    // No more characters to scan, just finishing up
     finished = true;
     // Check acceptance
     std::string augmented = startSymbol + "'";
+    bool wasAccepted = false;
     for (auto &item : chart[currentInput.size()]) {
       if (item.head == augmented && item.dotPos == item.body.size() && item.startIdx == 0) {
         accepted = true;
+        wasAccepted = true;
         break;
       }
     }
+
+    // Explanation for final step:
+    stepExplanations.push_back("Earley: Reached end of input. " +
+                               std::string(wasAccepted ? "Accepted" : "Rejected") +
+                               " the string.");
   }
 
   if (currentPos == currentInput.size() && !finished) {
-    // Final predict/complete at the end
     applyPredictComplete(currentPos);
     finished = true;
-    // Check acceptance again
+    bool wasAccepted = false;
     std::string augmented = startSymbol + "'";
     for (auto &item : chart[currentInput.size()]) {
       if (item.head == augmented && item.dotPos == item.body.size() && item.startIdx == 0) {
         accepted = true;
+        wasAccepted = true;
         break;
       }
     }
+
+    // Another explanation if we finalize here:
+    stepExplanations.push_back("Earley: Completed final predict/complete at end. " +
+                               std::string(wasAccepted ? "Accepted" : "Rejected") +
+                               " the input.");
   }
 
   return !finished;
 }
+
 
 bool EarleyParser::isDone() const {
   return finished;

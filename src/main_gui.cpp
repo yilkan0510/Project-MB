@@ -71,20 +71,31 @@ static void generateDotFileForParserState(const EarleyParser &parser, const std:
   const auto &chart = parser.getChart();
   std::ofstream out(filename);
   out << "digraph EarleyChart {\n";
+  out << "rankdir=TB;\n"; // vertical
+
   for (size_t i=0; i<chart.size(); i++) {
-    out << "node" << i << " [shape=box,label=\"Chart[" << i << "]\\n";
+    // Chart node
+    out << "Chart" << i << " [shape=box,label=\"Chart[" << i << "]\\n";
     for (auto &it : chart[i]) {
       std::string dotBody = it.body;
       dotBody.insert(it.dotPos, "•");
       out << it.head << "->" << dotBody << " (start=" << it.startIdx << ")\\l";
     }
     out << "\"];\n";
+
+    // Explanation node
+    if (i < parser.stepExplanations.size()) {
+      out << "ExplainEarley" << i << " [shape=note,label=\"" << parser.stepExplanations[i] << "\"];\n";
+      out << "Chart" << i << "->ExplainEarley" << i << ";\n";
+    }
+
     if (i>0) {
-      out << "node" << (i-1) << "->node" << i << ";\n";
+      out << "Chart" << (i-1) << "->Chart" << i << ";\n";
     }
   }
   out << "}\n";
 }
+
 
 static void runDotToPng(const std::string &dotFile, const std::string &pngFile) {
   std::string cmd = "dot -Tpng -o " + pngFile + " " + dotFile;
@@ -137,6 +148,43 @@ static std::unique_ptr<CFG> currentCFG;
 static std::unique_ptr<EarleyParser> earleyParser;
 static std::unique_ptr<GLRParser> glrParser;
 
+
+static void generateDotFileForGLRState(const GLRParser &parser, const std::string &filename) {
+  std::ofstream out(filename);
+  out << "digraph GLRStack {\n";
+  out << "rankdir=LR;\n"; // horizontal
+
+  // Suppose parser.parsingStack is a vector<int> of states
+  // and parser.stepExplanations has one entry per step
+  for (size_t i=0; i<parser.parsingStack.size(); i++) {
+    out << "State" << i << " [shape=box,label=\"State " << parser.parsingStack[i] << "\"];\n";
+    if (i>0) out << "State" << (i-1) << "->State" << i << ";\n";
+    if (i < parser.stepExplanations.size()) {
+      // Explanation node for this state
+      out << "ExplainGLR" << i << " [shape=note,label=\"" << parser.stepExplanations[i] << "\"];\n";
+      out << "State" << i << "->ExplainGLR" << i << ";\n";
+    }
+  }
+
+  if (parser.isDone()) {
+    if (parser.isAccepted()) {
+      out << "Accepted [shape=doublecircle,label=\"ACCEPT\"];\n";
+      if (!parser.parsingStack.empty()) {
+        out << "State" << (parser.parsingStack.size()-1) << "->Accepted;\n";
+      }
+    } else {
+      out << "Rejected [shape=diamond,label=\"REJECTED\"];\n";
+      if (!parser.parsingStack.empty()) {
+        out << "State" << (parser.parsingStack.size()-1) << "->Rejected;\n";
+      }
+    }
+  }
+
+  out << "}\n";
+}
+
+
+
 // Helper: Refresh directory listing
 static void refreshAvailableGrammars() {
   availableGrammars.clear();
@@ -147,9 +195,18 @@ static void refreshAvailableGrammars() {
   }
 }
 
-// Update Graph: generates dot and png from current CFG or parser state
 static void updateGraphVisualization() {
-  if (stepByStepEarley && earleyParser) {
+  if (earleyParser && (stepByStepEarley || earleyParser->isDone())) {
+    // If Earley parser exists and either we are in step-by-step or done,
+    // show the chart sets.
+    generateDotFileForParserState(*earleyParser, currentDotFile);
+  } else if (currentCFG) {
+    generateDotFileForGrammar(*currentCFG, currentDotFile);
+  }
+  // If we have a GLR parser and we are in step-by-step or finished parsing, show GLR stack
+  if (glrParser && (stepByStepGLR || glrParser->isDone())) {
+    generateDotFileForGLRState(*glrParser, currentDotFile);
+  } else if (earleyParser && (stepByStepEarley || earleyParser->isDone())) {
     generateDotFileForParserState(*earleyParser, currentDotFile);
   } else if (currentCFG) {
     generateDotFileForGrammar(*currentCFG, currentDotFile);
@@ -167,6 +224,7 @@ static void updateGraphVisualization() {
 
   loadTextureFromFile(currentPngFile.c_str(), &graphTexture, &graphTexWidth, &graphTexHeight);
 }
+
 
 // Save the CFG made in the CFG Maker to JSON
 static void saveEditorCFGToJSON(const std::string &path) {

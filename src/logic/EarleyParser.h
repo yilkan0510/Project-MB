@@ -40,6 +40,8 @@ public:
   size_t getCurrentPos() const { return currentPos; }
   const std::vector<std::set<EarleyItem>>& getChart() const { return chart; }
 
+  std::vector<std::string> stepExplanations;
+
 private:
   const CFG &cfg;
   std::string startSymbol;
@@ -55,6 +57,8 @@ private:
 
   void applyPredictComplete(size_t pos);
   void complete(const EarleyItem &item, size_t pos, bool &changed);
+  // Each element explains what happened at currentPos
+
 };
 
 #endif

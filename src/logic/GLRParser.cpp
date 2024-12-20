@@ -274,15 +274,20 @@ void GLRParser::reset(const std::string &input) {
 bool GLRParser::nextStep() {
   if (finishedGLR) return false;
 
-  // If we reached the end of input
+  // If we reached end of input:
   if (currentPosGLR >= currentInputGLR.size()) {
     // Check accept
     int state = parsingStack.back();
     auto it = actionTable.find({state,'$'});
+    bool wasAccepted = false;
     if (it!=actionTable.end() && it->second.type==ActionType::Accept) {
       acceptedGLR = true;
+      wasAccepted = true;
     }
     finishedGLR = true;
+
+    stepExplanations.push_back("GLR: Reached end of input and " +
+                               std::string(wasAccepted ? "Accepted" : "Rejected") + " the string.");
     return false;
   }
 
@@ -290,6 +295,7 @@ bool GLRParser::nextStep() {
 
   // Perform reduces until no more
   bool didReduce = true;
+  bool reducedSomething = false;
   while (didReduce) {
     didReduce = false;
     int state = parsingStack.back();
@@ -303,10 +309,20 @@ bool GLRParser::nextStep() {
         int nextState = gotoTable[{parsingStack.back(), r.head}];
         parsingStack.push_back(nextState);
         didReduce = true;
-        break; // break for loop
+        reducedSomething = true;
+        stepExplanations.push_back("GLR: Reduced by rule " + r.head + "->" +
+                                   [&](){
+                                     std::string bod;
+                                     for (auto &sym : r.body) bod += sym;
+                                     return bod;
+                                   }() +
+                                   " at pos " + std::to_string(currentPosGLR));
+        break;
       } else if (act!=actionTable.end() && act->second.type == ActionType::Accept) {
         acceptedGLR = true;
         finishedGLR = true;
+        stepExplanations.push_back("GLR: Accepted the input at pos " +
+                                   std::to_string(currentPosGLR));
         return false;
       }
     }
@@ -317,20 +333,26 @@ bool GLRParser::nextStep() {
   auto it = actionTable.find({state,a});
   if (it!=actionTable.end() && it->second.type==ActionType::Shift) {
     parsingStack.push_back(it->second.stateOrRule);
+    stepExplanations.push_back("GLR: Shifted character '" + std::string(1,a) +
+                               "' at pos " + std::to_string(currentPosGLR));
     currentPosGLR++;
   } else {
     // can't shift
     // if at end check accept again:
     if (currentPosGLR == currentInputGLR.size()) {
-      // already checked accept above
+      // Acceptance checked above if we reached end
     } else {
       // no shift means fail
       finishedGLR = true;
+      stepExplanations.push_back("GLR: No valid shift/reduce action at pos " +
+                                 std::to_string(currentPosGLR) +
+                                 ". Rejected the input.");
     }
   }
 
   return !finishedGLR;
 }
+
 
 bool GLRParser::isDone() const {
   return finishedGLR;

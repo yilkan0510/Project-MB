@@ -59,6 +59,11 @@ public:
   bool isDone() const;
   bool isAccepted() const;
 
+  // Add these member variables:
+  std::vector<int> parsingStack;
+
+  std::vector<std::string> stepExplanations;
+
 private:
   const CFG &cfg;
   std::string startSymbol;
@@ -83,12 +88,14 @@ private:
   void performShift(std::vector<std::shared_ptr<GSSNode>> &tops, int nextState);
   std::vector<std::shared_ptr<GSSNode>> performReduce(std::vector<std::shared_ptr<GSSNode>> &tops, int ruleId);
 
-  // Add these member variables:
-  std::vector<int> parsingStack; // The LR stack of states
+  // The LR stack of states
   bool finishedGLR = false;
   bool acceptedGLR = false;
   size_t currentPosGLR = 0;
   std::string currentInputGLR;
+
+  // Explains each step (shift/reduce)
+
 
 };
 

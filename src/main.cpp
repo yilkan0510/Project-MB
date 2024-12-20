@@ -8,8 +8,6 @@
 #include <string>
 #include "logic/GLRParser.h"
 #include "logic/EarleyParser.h"
-// stb_image
-#define STB_IMAGE_IMPLEMENTATION
 #include "../stb/stb_image.h"
 
 // Function to generate a Graphviz DOT file and render it to a PNG

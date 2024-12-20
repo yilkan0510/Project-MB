@@ -28,13 +28,27 @@ struct EarleyItem {
 class EarleyParser {
 public:
   explicit EarleyParser(const CFG &grammar);
+
+  // Normal parse: runs to completion
   bool parse(const std::string &input);
+
+  // Step-by-step interface:
+  void reset(const std::string &input);
+  bool nextStep();       // Advance one step in parsing
+  bool isDone() const;   // True if no more steps
+  bool isAccepted() const;// True if the input is accepted
+  size_t getCurrentPos() const { return currentPos; }
+  const std::vector<std::set<EarleyItem>>& getChart() const { return chart; }
 
 private:
   const CFG &cfg;
   std::string startSymbol;
 
+  std::string currentInput;
   std::vector<std::set<EarleyItem>> chart;
+  size_t currentPos;
+  bool finished;
+  bool accepted;
 
   bool isNonTerminal(const std::string &symbol) const;
   bool isTerminal(char symbol) const;

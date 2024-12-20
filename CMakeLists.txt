@@ -4,9 +4,11 @@ project(CFG_Visualization)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
+# Gather all cpp files from src
 file(GLOB_RECURSE SOURCES ${CMAKE_SOURCE_DIR}/src/*.cpp)
 
-add_executable(CFG_Visualization ${SOURCES})
+add_executable(CFG_Visualization ${SOURCES}
+        src/logic/main_gui.cpp)
 
 target_include_directories(CFG_Visualization PRIVATE
         ${CMAKE_SOURCE_DIR}/libs/imgui
@@ -23,7 +25,7 @@ target_link_directories(CFG_Visualization PRIVATE
 )
 
 target_link_libraries(CFG_Visualization
-        glfw3
+        glfw3        # or glfw depending on your build
         GLEW
         GL
         pthread
@@ -32,10 +34,10 @@ target_link_libraries(CFG_Visualization
         m
 )
 
+# Include ImGui backend files
 file(GLOB IMGUI_BACKEND_SOURCES
+        ${CMAKE_SOURCE_DIR}/libs/imgui/*.cpp
         ${CMAKE_SOURCE_DIR}/libs/imgui/backends/imgui_impl_glfw.cpp
         ${CMAKE_SOURCE_DIR}/libs/imgui/backends/imgui_impl_opengl3.cpp
-        ${CMAKE_SOURCE_DIR}/libs/imgui/*.cpp
 )
-
 target_sources(CFG_Visualization PRIVATE ${IMGUI_BACKEND_SOURCES})

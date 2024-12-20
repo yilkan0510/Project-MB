@@ -106,9 +106,10 @@ int main() {
 }
 */
 
+/*
 int main() {
   // Test CFG4: S->a
-  CFG cfg("../src/JSON/CFG4.json");
+  CFG cfg("../src/JSON/CFG1.json");
 //  CFG cfg("../src/JSON/CFG5.json");
   EarleyParser earley(cfg);
   GLRParser glr(cfg);
@@ -124,4 +125,4 @@ int main() {
   }
 
   return 0;
-}
+}*/

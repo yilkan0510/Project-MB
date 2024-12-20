@@ -7,44 +7,84 @@ EarleyParser::EarleyParser(const CFG &grammar) : cfg(grammar) {
 }
 
 bool EarleyParser::parse(const std::string &input) {
-  // Augment the grammar: S' -> S
-  std::string augmented = startSymbol + "'";
-  chart.clear();
-  chart.resize(input.size() + 1);
-  // Add [S'->·S,0]
-  EarleyItem startItem{augmented, cfg.getStartSymbol(), 0, 0};
-  chart[0].insert(startItem);
+  reset(input);
+  while (!isDone()) {
+    nextStep();
+  }
+  return isAccepted();
+}
 
-  // Predict/Complete at position 0
+void EarleyParser::reset(const std::string &input) {
+  currentInput = input;
+  size_t length = input.size();
+  chart.clear();
+  chart.resize(length + 1);
+
+  // Augmented start: S' -> S
+  std::string augmented = startSymbol + "'";
+  chart[0].insert({augmented, cfg.getStartSymbol(), 0, 0});
   applyPredictComplete(0);
 
-  for (size_t pos = 0; pos <= input.size(); ++pos) {
-    if (pos < input.size()) {
-      // SCAN
-      char c = input[pos];
-      std::vector<EarleyItem> items(chart[pos].begin(), chart[pos].end());
-      for (auto &item : items) {
-        if (item.dotPos < item.body.size()) {
-          char nextSym = item.body[item.dotPos];
-          if (isTerminal(nextSym) && nextSym == c) {
-            EarleyItem newItem = item;
-            newItem.dotPos++;
-            chart[pos+1].insert(newItem);
-          }
+  currentPos = 0;
+  finished = false;
+  accepted = false;
+}
+
+bool EarleyParser::nextStep() {
+  if (finished) return false;
+
+  if (currentPos < currentInput.size()) {
+    // SCAN step
+    char c = currentInput[currentPos];
+    std::vector<EarleyItem> items(chart[currentPos].begin(), chart[currentPos].end());
+    for (auto &item : items) {
+      if (item.dotPos < item.body.size()) {
+        char nextSym = item.body[item.dotPos];
+        if (isTerminal(nextSym) && nextSym == c) {
+          EarleyItem newItem = item;
+          newItem.dotPos++;
+          chart[currentPos+1].insert(newItem);
         }
       }
-      applyPredictComplete(pos+1);
+    }
+    applyPredictComplete(currentPos+1);
+    currentPos++;
+  } else {
+    // No more characters to scan
+    finished = true;
+    // Check acceptance
+    std::string augmented = startSymbol + "'";
+    for (auto &item : chart[currentInput.size()]) {
+      if (item.head == augmented && item.dotPos == item.body.size() && item.startIdx == 0) {
+        accepted = true;
+        break;
+      }
     }
   }
 
-  // Accept if [S'->S·,0] in chart[input.size()]
-  for (auto &item : chart[input.size()]) {
-    if (item.head == augmented && item.dotPos == item.body.size() && item.startIdx == 0) {
-      return true;
+  if (currentPos == currentInput.size() && !finished) {
+    // Final predict/complete at the end
+    applyPredictComplete(currentPos);
+    finished = true;
+    // Check acceptance again
+    std::string augmented = startSymbol + "'";
+    for (auto &item : chart[currentInput.size()]) {
+      if (item.head == augmented && item.dotPos == item.body.size() && item.startIdx == 0) {
+        accepted = true;
+        break;
+      }
     }
   }
 
-  return false;
+  return !finished;
+}
+
+bool EarleyParser::isDone() const {
+  return finished;
+}
+
+bool EarleyParser::isAccepted() const {
+  return accepted;
 }
 
 void EarleyParser::applyPredictComplete(size_t pos) {
@@ -77,7 +117,6 @@ void EarleyParser::applyPredictComplete(size_t pos) {
 }
 
 void EarleyParser::complete(const EarleyItem &item, size_t pos, bool &changed) {
-  // For each item in chart[item.startIdx] that expects item.head next, advance dot
   for (auto &cand : chart[item.startIdx]) {
     if (cand.dotPos < cand.body.size()) {
       std::string nextSym(1, cand.body[cand.dotPos]);

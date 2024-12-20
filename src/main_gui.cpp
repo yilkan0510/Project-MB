@@ -476,6 +476,12 @@ int main(int, char**)
       }
       ImGui::InputText("Add Terminal", newTerminal, IM_ARRAYSIZE(newTerminal));
       if (ImGui::Button("Add T")) {
+        for (const auto &nt : editorNonTerminals) {
+          if (std::string(newTerminal) == nt) {
+            newTerminal[0]='\0';
+            break;
+          }
+        }
         if (strlen(newTerminal)==1) {
           char t = newTerminal[0];
           std::string termSymbol(1, t);

@@ -19,7 +19,9 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
+// stb_image for image loading (implementation in stb_image_impl.cpp)
 #include "../stb/stb_image.h"
+
 
 // Forward declarations for GUI helpers
 static void glfw_error_callback(int error, const char* description) {
@@ -48,7 +50,6 @@ static bool loadTextureFromFile(const char* filename, GLuint* out_texture, int* 
 
 // Dummy functions for generating dot files. You must implement these:
 static void generateDotFileForGrammar(const CFG &cfg, const std::string &filename) {
-  // Example: Just show non-terminals and productions as a simple graph
   std::ofstream out(filename);
   out << "digraph G {\n";
   out << "rankdir=LR;\n";
@@ -59,6 +60,7 @@ static void generateDotFileForGrammar(const CFG &cfg, const std::string &filenam
   // Show edges from NT to each production body symbol
   for (auto &rule : cfg.getProductionRules()) {
     for (auto &body : rule.second) {
+      // Represent body as a single string for simplicity
       out << "\"" << rule.first << "\" -> \"" << body << "\";\n";
     }
   }
@@ -66,7 +68,6 @@ static void generateDotFileForGrammar(const CFG &cfg, const std::string &filenam
 }
 
 static void generateDotFileForParserState(const EarleyParser &parser, const std::string &filename) {
-  // Represent the Earley chart as nodes:
   const auto &chart = parser.getChart();
   std::ofstream out(filename);
   out << "digraph EarleyChart {\n";
@@ -91,7 +92,7 @@ static void runDotToPng(const std::string &dotFile, const std::string &pngFile) 
 }
 
 // Globals for GUI state
-static char grammarPath[256] = "src/JSON/CFG4.json";
+static char grammarPath[256] = "../src/JSON/CFG4.json";
 static char inputString[256] = "";
 static std::string parseResultEarley = "";
 static std::string parseResultGLR = "";
@@ -110,8 +111,8 @@ static int graphTexHeight = 0;
 static std::string currentDotFile = "state.dot";
 static std::string currentPngFile = "state.png";
 
-// CFG creation mode
-static bool cfgEditorOpen = false;
+// CFG Maker (previously CFG Editor)
+static bool cfgMakerOpen = false;
 static std::set<std::string> editorNonTerminals;
 static std::set<char> editorTerminals;
 static std::map<std::string,std::vector<std::string>> editorProductions;
@@ -119,6 +120,7 @@ static char newNonTerminal[16] = "";
 static char newTerminal[16] = "";
 static char prodHead[16] = "";
 static char prodBody[256] = "";
+static char editorStartSymbol[16] = "";
 
 // Import menu
 static bool importMenuOpen = false;
@@ -148,13 +150,10 @@ static void refreshAvailableGrammars() {
 // Update Graph: generates dot and png from current CFG or parser state
 static void updateGraphVisualization() {
   if (stepByStepEarley && earleyParser) {
-    // Generate parser state graph
     generateDotFileForParserState(*earleyParser, currentDotFile);
   } else if (currentCFG) {
-    // Show grammar graph if not in step by step mode
     generateDotFileForGrammar(*currentCFG, currentDotFile);
   } else {
-    // If no CFG, generate empty graph?
     std::ofstream out(currentDotFile);
     out << "digraph G {\nempty[label=\"No CFG\"];\n}\n";
   }
@@ -167,6 +166,67 @@ static void updateGraphVisualization() {
   }
 
   loadTextureFromFile(currentPngFile.c_str(), &graphTexture, &graphTexWidth, &graphTexHeight);
+}
+
+// Save the CFG made in the CFG Maker to JSON
+static void saveEditorCFGToJSON(const std::string &path) {
+  // Build JSON-like structure
+  // Ensure that editorStartSymbol is a valid non-terminal
+  // For simplicity, no error checking here
+  std::ofstream out(path);
+  out << "{\n";
+  // Variables
+  out << "  \"Variables\": [";
+  {
+    bool first=true;
+    for (auto &nt : editorNonTerminals) {
+      if (!first) out << ", ";
+      out << "\"" << nt << "\"";
+      first=false;
+    }
+  }
+  out << "],\n";
+
+  // Terminals
+  out << "  \"Terminals\": [";
+  {
+    bool first=true;
+    for (auto t : editorTerminals) {
+      if (!first) out << ", ";
+      out << "\"" << t << "\"";
+      first=false;
+    }
+  }
+  out << "],\n";
+
+  // Productions
+  out << "  \"Productions\": [\n";
+  {
+    bool firstOuter=true;
+    for (auto &rule : editorProductions) {
+      for (auto &body : rule.second) {
+        if (!firstOuter) out << ",\n";
+        out << "    {\"head\": \"" << rule.first << "\", \"body\": [";
+        // body is a single string of concatenated symbols
+        // We must split it into separate symbols if needed
+        // For simplicity, assume each symbol is one character
+        bool firstInner=true;
+        for (size_t i=0; i<body.size(); i++) {
+          if (!firstInner) out << ", ";
+          std::string sym(1, body[i]);
+          out << "\"" << sym << "\"";
+          firstInner=false;
+        }
+        out << "]}";
+        firstOuter=false;
+      }
+    }
+  }
+  out << "\n  ],\n";
+
+  // Start
+  out << "  \"Start\": \"" << editorStartSymbol << "\"\n";
+  out << "}\n";
 }
 
 int main(int, char**)
@@ -221,8 +281,8 @@ int main(int, char**)
         if (ImGui::MenuItem("Export")) {
           exportMenuOpen = true;
         }
-        if (ImGui::MenuItem("Edit CFG")) {
-          cfgEditorOpen = true;
+        if (ImGui::MenuItem("CFG Maker")) {
+          cfgMakerOpen = true;
         }
         ImGui::EndMenu();
       }
@@ -248,15 +308,62 @@ int main(int, char**)
       ImGui::Begin("Export", &exportMenuOpen);
       ImGui::InputText("Base Name", exportBaseName, IM_ARRAYSIZE(exportBaseName));
       if (ImGui::Button("Export Now")) {
-        // Export current CFG JSON
         if (currentCFG) {
+          // Export JSON
           std::string jsonExport = exportDir + std::string(exportBaseName) + ".json";
-          // Saving currentCFG as JSON
-          // This requires code to serialize CFG to JSON, omitted for brevity
-          // Implement a function to save CFG to JSON:
-          // saveCFGToJSON(*currentCFG, jsonExport);
+          // Implement a function to save the currentCFG to JSON
+          // Since we have a CFG object, mimic the structure of your saveEditorCFGToJSON:
+          // (This requires you to write a similar function that takes currentCFG and writes it out)
 
-          // Export dot
+          // Example (pseudo-code):
+          std::ofstream out(jsonExport);
+          out << "{\n";
+          // Write Variables
+          out << "  \"Variables\": [";
+          bool first=true;
+          for (auto &v : currentCFG->getNonTerminals()) {
+              if (!first) out << ", ";
+              out << "\"" << v << "\"";
+              first=false;
+          }
+          out << "],\n";
+
+          // Write Terminals
+          out << "  \"Terminals\": [";
+          first=true;
+          for (auto t : currentCFG->getTerminals()) {
+              if (!first) out << ", ";
+              out << "\"" << t << "\"";
+              first=false;
+          }
+          out << "],\n";
+
+          // Write Productions
+          out << "  \"Productions\": [\n";
+          {
+            bool firstOuter = true;
+            for (auto &rule : currentCFG->getProductionRules()) {
+              for (auto &body : rule.second) {
+                if (!firstOuter) out << ",\n";
+                out << "    {\"head\": \"" << rule.first << "\", \"body\": [";
+                bool firstInner=true;
+                for (auto &c : body) {
+                  if (!firstInner) out << ", ";
+                  out << "\"" << c << "\"";
+                  firstInner=false;
+                }
+                out << "]}";
+                firstOuter = false;
+              }
+            }
+          }
+          out << "\n  ],\n";
+
+          // Write Start
+          out << "  \"Start\": \"" << currentCFG->getStartSymbol() << "\"\n";
+          out << "}\n";
+
+          // Export DOT and PNG
           std::string dotExport = exportDir + std::string(exportBaseName) + ".dot";
           if (stepByStepEarley && earleyParser) {
             generateDotFileForParserState(*earleyParser, dotExport);
@@ -264,7 +371,6 @@ int main(int, char**)
             generateDotFileForGrammar(*currentCFG, dotExport);
           }
 
-          // Export png via dot
           std::string pngExport = exportDir + std::string(exportBaseName) + ".png";
           std::string cmd = "dot -Tpng -o " + pngExport + " " + dotExport;
           system(cmd.c_str());
@@ -274,12 +380,26 @@ int main(int, char**)
       ImGui::End();
     }
 
-    // CFG Editor
-    if (cfgEditorOpen) {
-      ImGui::Begin("CFG Editor", &cfgEditorOpen);
+    // CFG Maker Window
+    if (cfgMakerOpen) {
+      ImGui::Begin("CFG Maker", &cfgMakerOpen);
+      ImGui::Text("Create your CFG here.");
+      ImGui::InputText("Start Symbol", editorStartSymbol, IM_ARRAYSIZE(editorStartSymbol));
+
+      ImGui::Separator();
       ImGui::Text("Non-terminals:");
-      for (auto &nt : editorNonTerminals) {
-        ImGui::BulletText("%s", nt.c_str());
+      {
+        // To safely remove items while iterating, we copy to a vector first
+        std::vector<std::string> ntemp(editorNonTerminals.begin(), editorNonTerminals.end());
+        for (auto &nt : ntemp) {
+          ImGui::BulletText("%s", nt.c_str());
+          ImGui::SameLine();
+          std::string delButton = "X##NT_" + nt;
+          if (ImGui::Button(delButton.c_str())) {
+            editorNonTerminals.erase(nt);
+            break;
+          }
+        }
       }
       ImGui::InputText("Add Non-terminal", newNonTerminal, IM_ARRAYSIZE(newNonTerminal));
       if (ImGui::Button("Add NT")) {
@@ -291,12 +411,22 @@ int main(int, char**)
 
       ImGui::Separator();
       ImGui::Text("Terminals:");
-      for (auto t : editorTerminals) {
-        ImGui::BulletText("%c", t);
+      {
+        std::vector<char> ttemp(editorTerminals.begin(), editorTerminals.end());
+        for (auto t : ttemp) {
+          ImGui::BulletText("%c", t);
+          ImGui::SameLine();
+          std::string delButton = "X##T_";
+          delButton.push_back(t);
+          if (ImGui::Button(delButton.c_str())) {
+            editorTerminals.erase(t);
+            break;
+          }
+        }
       }
       ImGui::InputText("Add Terminal", newTerminal, IM_ARRAYSIZE(newTerminal));
       if (ImGui::Button("Add T")) {
-        if (strlen(newTerminal)>0 && strlen(newTerminal)==1) {
+        if (strlen(newTerminal)==1) {
           editorTerminals.insert(newTerminal[0]);
           newTerminal[0]='\0';
         }
@@ -304,14 +434,48 @@ int main(int, char**)
 
       ImGui::Separator();
       ImGui::Text("Productions:");
-      for (auto &rule : editorProductions) {
-        for (auto &body : rule.second) {
-          ImGui::BulletText("%s -> %s", rule.first.c_str(), body.c_str());
+      {
+        // We'll show "head -> body"
+        // Also allow deletion of each production
+        // Careful removal: We'll create a new structure after removals
+
+        // We'll store a list of (head,body) to handle removal
+        struct ProdItem {
+          std::string head;
+          std::string body;
+        };
+        std::vector<ProdItem> allProds;
+        for (auto &rule : editorProductions) {
+          for (auto &bd : rule.second) {
+            allProds.push_back({rule.first, bd});
+          }
+        }
+
+        bool removedOne = false;
+        ProdItem toRemove;
+        for (auto &p : allProds) {
+          ImGui::BulletText("%s -> %s", p.head.c_str(), p.body.c_str());
+          ImGui::SameLine();
+          std::string delButton = "X##P_" + p.head + "_" + p.body;
+          if (ImGui::Button(delButton.c_str())) {
+            removedOne = true;
+            toRemove = p;
+            break;
+          }
+        }
+
+        if (removedOne) {
+          // Remove toRemove from editorProductions
+          auto &vec = editorProductions[toRemove.head];
+          vec.erase(std::remove(vec.begin(), vec.end(), toRemove.body), vec.end());
+          if (vec.empty()) {
+            editorProductions.erase(toRemove.head);
+          }
         }
       }
 
       ImGui::InputText("Prod Head", prodHead, IM_ARRAYSIZE(prodHead));
-      ImGui::InputText("Prod Body (concatenated symbols)", prodBody, IM_ARRAYSIZE(prodBody));
+      ImGui::InputText("Prod Body (symbols concatenated)", prodBody, IM_ARRAYSIZE(prodBody));
       if (ImGui::Button("Add Production")) {
         if (strlen(prodHead)>0 && editorNonTerminals.count(prodHead)>0) {
           editorProductions[prodHead].push_back(std::string(prodBody));
@@ -320,18 +484,20 @@ int main(int, char**)
         }
       }
 
-      if (ImGui::Button("Save CFG")) {
-        // Construct a CFG object from editor data
-        // This requires code similar to loading from JSON, but in reverse
-        // Just create a CFG file manually:
-        std::string savePath = grammarsDir + std::string("edited.json");
-        // Implement saveEditorCFGToJSON(editorNonTerminals,editorTerminals,editorProductions,savePath);
+      ImGui::Separator();
+      if (ImGui::Button("Save as JSON |CreatedJson.json| ")) {
+        std::string savePath = grammarsDir + std::string("CreatedJson.json");
+        saveEditorCFGToJSON(savePath);
 
-        // Then load it into currentCFG
-        currentCFG = std::make_unique<CFG>(savePath);
-        earleyParser = std::make_unique<EarleyParser>(*currentCFG);
-        glrParser = std::make_unique<GLRParser>(*currentCFG);
-        updateGraphVisualization();
+        // Load it into currentCFG
+        try {
+          currentCFG = std::make_unique<CFG>(savePath);
+          earleyParser = std::make_unique<EarleyParser>(*currentCFG);
+          glrParser = std::make_unique<GLRParser>(*currentCFG);
+          updateGraphVisualization();
+        } catch(...) {
+          // handle error if any
+        }
       }
 
       ImGui::End();
@@ -392,20 +558,14 @@ int main(int, char**)
     ImGui::Separator();
 
     if (ImGui::Button("GLR Parse (Full)")) {
-      // Implement GLR full parse:
-      // bool res = glrParser->parse(vector_of_tokens);
-      // parseResultGLR = res ? "Accepted" : "Rejected";
-      // Just a placeholder since tokenization not shown:
       parseResultGLR = "Not Implemented Yet";
     }
     ImGui::SameLine();
     if (ImGui::Button("GLR Step-by-Step")) {
       stepByStepGLR = true; // Similarly handle GLR step simulation
-                            // Not fully implemented
     }
 
     if (stepByStepGLR && !glrFinished) {
-      // Add Next Step for GLR once implemented
       ImGui::Text("GLR Step-by-step not fully implemented.");
     }
 
@@ -425,7 +585,6 @@ int main(int, char**)
       if (graphTexture) {
         ImGui::Text("Graph (width=%d, height=%d):", graphTexWidth, graphTexHeight);
         ImGui::Image((ImTextureID)(intptr_t)graphTexture, ImVec2((float)graphTexWidth, (float)graphTexHeight));
-
       } else {
         ImGui::Text("No graph available.");
       }

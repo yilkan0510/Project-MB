@@ -6,8 +6,8 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-#include "GLRParser.h"
-#include "EarleyParser.h"
+#include "logic/GLRParser.h"
+#include "logic/EarleyParser.h"
 // stb_image
 #define STB_IMAGE_IMPLEMENTATION
 #include "../stb/stb_image.h"
@@ -70,7 +70,7 @@ int main() {
 
 // ambigu test
 
-/*
+
 int main() {
   // Test the trivial unambiguous CFG
   CFG cfg_unambiguous("../src/JSON/input-unambiguous.json");
@@ -104,7 +104,7 @@ int main() {
 
   return 0;
 }
-*/
+
 
 /*
 int main() {
@@ -125,4 +125,5 @@ int main() {
   }
 
   return 0;
-}*/
+}
+*/

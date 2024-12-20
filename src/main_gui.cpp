@@ -4,9 +4,9 @@
 #include <algorithm>
 #include <fstream>
 
-#include "CFG.h"
-#include "EarleyParser.h"
-#include "GLRParser.h"
+#include "logic/CFG.h"
+#include "logic/EarleyParser.h"
+#include "logic/GLRParser.h"
 
 // Include Dear ImGui
 #include "imgui.h"

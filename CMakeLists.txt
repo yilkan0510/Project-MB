@@ -11,7 +11,8 @@ add_executable(Release ${SOURCES}
         src/main.cpp)
 
 add_executable(GUI ${SOURCES}
-        src/main_gui.cpp)
+        src/main_gui.cpp
+        libs/stb/stb_image_impl.cpp)
 
 target_include_directories(Release PRIVATE
         ${CMAKE_SOURCE_DIR}/libs/imgui

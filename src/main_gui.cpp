@@ -322,9 +322,9 @@ int main(int, char**)
           out << "  \"Variables\": [";
           bool first=true;
           for (auto &v : currentCFG->getNonTerminals()) {
-              if (!first) out << ", ";
-              out << "\"" << v << "\"";
-              first=false;
+            if (!first) out << ", ";
+            out << "\"" << v << "\"";
+            first=false;
           }
           out << "],\n";
 
@@ -332,9 +332,9 @@ int main(int, char**)
           out << "  \"Terminals\": [";
           first=true;
           for (auto t : currentCFG->getTerminals()) {
-              if (!first) out << ", ";
-              out << "\"" << t << "\"";
-              first=false;
+            if (!first) out << ", ";
+            out << "\"" << t << "\"";
+            first=false;
           }
           out << "],\n";
 
@@ -384,18 +384,68 @@ int main(int, char**)
     if (cfgMakerOpen) {
       ImGui::Begin("CFG Maker", &cfgMakerOpen);
       ImGui::Text("Create your CFG here.");
-      ImGui::InputText("Start Symbol", editorStartSymbol, IM_ARRAYSIZE(editorStartSymbol));
+      // Start Symbol Section
+      ImGui::Separator();
+      ImGui::Text("Start Symbol:");
+
+      if (strlen(editorStartSymbol) > 0) {
+        // A start symbol is already set, display it with a bullet and X button
+        ImGui::BulletText("%s (Start)", editorStartSymbol);
+        ImGui::SameLine();
+        if (ImGui::Button("X##StartSymbol")) {
+          // User clicked X to remove the start symbol
+          // If this start symbol is in non-terminals, remove it from there as well
+          std::string sSymbol(editorStartSymbol);
+          if (editorNonTerminals.count(sSymbol)) {
+            editorNonTerminals.erase(sSymbol);
+          }
+          editorStartSymbol[0] = '\0'; // Clear the start symbol
+        }
+        ImGui::Text("To change the start symbol, remove it first, then add a new one.");
+      } else {
+        // No start symbol set yet, allow user to input one and add it
+        static char tempStartSymbol[16] = "";
+        ImGui::InputText("Enter Start Symbol", tempStartSymbol, IM_ARRAYSIZE(tempStartSymbol));
+        if (ImGui::Button("Add Start Symbol")) {
+          if (strlen(tempStartSymbol) > 0) {
+            std::string sSymbol(tempStartSymbol);
+            // Ensure start symbol not in terminals
+            // If sSymbol is one character and is in terminals, remove it
+            if (sSymbol.size() == 1 && editorTerminals.count(sSymbol[0])) {
+              // Remove from terminals since start symbol must be a non-terminal
+              editorTerminals.erase(sSymbol[0]);
+            }
+
+            // Add the start symbol to non-terminals if not present
+            if (!editorNonTerminals.count(sSymbol)) {
+              editorNonTerminals.insert(sSymbol);
+            }
+
+            // Set the editorStartSymbol
+            strncpy(editorStartSymbol, tempStartSymbol, IM_ARRAYSIZE(editorStartSymbol));
+            tempStartSymbol[0] = '\0';
+          }
+        }
+      }
+
+      // Now continue with your Non-terminals, Terminals, and Productions code as before...
+
 
       ImGui::Separator();
       ImGui::Text("Non-terminals:");
       {
-        // To safely remove items while iterating, we copy to a vector first
+        // Non-terminals display and deletion
         std::vector<std::string> ntemp(editorNonTerminals.begin(), editorNonTerminals.end());
         for (auto &nt : ntemp) {
           ImGui::BulletText("%s", nt.c_str());
           ImGui::SameLine();
+
           std::string delButton = "X##NT_" + nt;
           if (ImGui::Button(delButton.c_str())) {
+            // If this non-terminal is the start symbol, clear it
+            if (nt == editorStartSymbol) {
+              editorStartSymbol[0] = '\0'; // Clear the start symbol since we removed it
+            }
             editorNonTerminals.erase(nt);
             break;
           }
@@ -427,8 +477,19 @@ int main(int, char**)
       ImGui::InputText("Add Terminal", newTerminal, IM_ARRAYSIZE(newTerminal));
       if (ImGui::Button("Add T")) {
         if (strlen(newTerminal)==1) {
-          editorTerminals.insert(newTerminal[0]);
-          newTerminal[0]='\0';
+          char t = newTerminal[0];
+          std::string termSymbol(1, t);
+
+          // Check if the termSymbol is the same as the current start symbol
+          if (termSymbol == editorStartSymbol) {
+            // show a warning or just skip adding
+            // For example, we can print a message in ImGui:
+            ImGui::TextColored(ImVec4(1,0,0,1), "Cannot add start symbol as terminal!");
+            // do NOT insert into editorTerminals
+          } else {
+            editorTerminals.insert(t);
+            newTerminal[0]='\0';
+          }
         }
       }
 
@@ -495,10 +556,14 @@ int main(int, char**)
           earleyParser = std::make_unique<EarleyParser>(*currentCFG);
           glrParser = std::make_unique<GLRParser>(*currentCFG);
           updateGraphVisualization();
+
+          // After saving and loading, refresh the import menu
+          refreshAvailableGrammars();
         } catch(...) {
           // handle error if any
         }
       }
+
 
       ImGui::End();
     }

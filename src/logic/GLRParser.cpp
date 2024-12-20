@@ -261,3 +261,81 @@ std::vector<std::shared_ptr<GSSNode>> GLRParser::performReduce(std::vector<std::
   // Not used in this simplified approach
   return {};
 }
+
+void GLRParser::reset(const std::string &input) {
+  currentInputGLR = input + "$";
+  parsingStack.clear();
+  parsingStack.push_back(0); // start state
+  currentPosGLR = 0;
+  finishedGLR = false;
+  acceptedGLR = false;
+}
+
+bool GLRParser::nextStep() {
+  if (finishedGLR) return false;
+
+  // If we reached the end of input
+  if (currentPosGLR >= currentInputGLR.size()) {
+    // Check accept
+    int state = parsingStack.back();
+    auto it = actionTable.find({state,'$'});
+    if (it!=actionTable.end() && it->second.type==ActionType::Accept) {
+      acceptedGLR = true;
+    }
+    finishedGLR = true;
+    return false;
+  }
+
+  char a = currentInputGLR[currentPosGLR];
+
+  // Perform reduces until no more
+  bool didReduce = true;
+  while (didReduce) {
+    didReduce = false;
+    int state = parsingStack.back();
+    // Check for reduce
+    for (auto t : {a, '$'}) {
+      auto act = actionTable.find({state,t});
+      if (act != actionTable.end() && act->second.type == ActionType::Reduce) {
+        const GLRRule &r = rules[act->second.stateOrRule];
+        int popCount = (int)r.body.size();
+        for (int i=0;i<popCount;i++) parsingStack.pop_back();
+        int nextState = gotoTable[{parsingStack.back(), r.head}];
+        parsingStack.push_back(nextState);
+        didReduce = true;
+        break; // break for loop
+      } else if (act!=actionTable.end() && act->second.type == ActionType::Accept) {
+        acceptedGLR = true;
+        finishedGLR = true;
+        return false;
+      }
+    }
+  }
+
+  // Now try shift if not at end
+  int state = parsingStack.back();
+  auto it = actionTable.find({state,a});
+  if (it!=actionTable.end() && it->second.type==ActionType::Shift) {
+    parsingStack.push_back(it->second.stateOrRule);
+    currentPosGLR++;
+  } else {
+    // can't shift
+    // if at end check accept again:
+    if (currentPosGLR == currentInputGLR.size()) {
+      // already checked accept above
+    } else {
+      // no shift means fail
+      finishedGLR = true;
+    }
+  }
+
+  return !finishedGLR;
+}
+
+bool GLRParser::isDone() const {
+  return finishedGLR;
+}
+
+bool GLRParser::isAccepted() const {
+  return acceptedGLR;
+}

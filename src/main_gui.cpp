@@ -272,6 +272,30 @@ int main(int, char**)
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
+    // Create a dockspace
+    {
+      static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
+      ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+                                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus |
+                                      ImGuiWindowFlags_NoNavFocus;
+
+      ImGuiViewport* viewport = ImGui::GetMainViewport();
+      ImGui::SetNextWindowPos(viewport->WorkPos);
+      ImGui::SetNextWindowSize(viewport->WorkSize);
+      ImGui::SetNextWindowViewport(viewport->ID);
+
+      ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+      ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+      ImGui::Begin("DockSpace Window", nullptr, window_flags);
+      ImGui::PopStyleVar(2);
+
+      ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
+      ImGui::DockSpace(dockspace_id, ImVec2(0.0f,0.0f), dockspace_flags);
+
+      ImGui::End();
+    }
+
+
     // Main Menu Bar
     if (ImGui::BeginMainMenuBar()) {
       if (ImGui::BeginMenu("File")) {
@@ -629,15 +653,36 @@ int main(int, char**)
     ImGui::Separator();
 
     if (ImGui::Button("GLR Parse (Full)")) {
-      parseResultGLR = "Not Implemented Yet";
+      if (glrParser) {
+        glrParser->reset(inputString);
+        // Run until done
+        while (!glrParser->isDone()) {
+          glrParser->nextStep();
+        }
+        parseResultGLR = glrParser->isAccepted() ? "Accepted" : "Rejected";
+        updateGraphVisualization();
+      }
     }
     ImGui::SameLine();
+
     if (ImGui::Button("GLR Step-by-Step")) {
-      stepByStepGLR = true; // Similarly handle GLR step simulation
+      if (glrParser) {
+        glrParser->reset(inputString);
+        stepByStepGLR = true;
+        glrFinished = false;
+        updateGraphVisualization();
+      }
     }
 
     if (stepByStepGLR && !glrFinished) {
-      ImGui::Text("GLR Step-by-step not fully implemented.");
+      if (ImGui::Button("Next Step (GLR)")) {
+        bool cont = glrParser->nextStep();
+        if (!cont) {
+          glrFinished = true;
+          parseResultGLR = glrParser->isAccepted() ? "Accepted" : "Rejected";
+        }
+        updateGraphVisualization();
+      }
     }
 
     ImGui::Separator();

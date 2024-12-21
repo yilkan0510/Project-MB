@@ -269,7 +269,13 @@ void GLRParser::reset(const std::string &input) {
   currentPosGLR = 0;
   finishedGLR = false;
   acceptedGLR = false;
+  stepExplanations.clear();
+
+  stackSnapshots.clear();
+  stackSnapshots.resize(currentInputGLR.size() + 1);
+  stackSnapshots[0] = parsingStack; // initial snapshot at pos=0
 }
+
 
 bool GLRParser::nextStep() {
   if (finishedGLR) return false;
@@ -336,6 +342,10 @@ bool GLRParser::nextStep() {
     stepExplanations.push_back("GLR: Shifted character '" + std::string(1,a) +
                                "' at pos " + std::to_string(currentPosGLR));
     currentPosGLR++;
+
+    if (currentPosGLR < stackSnapshots.size()) {
+      stackSnapshots[currentPosGLR] = parsingStack;
+    }
   } else {
     // can't shift
     // if at end check accept again:

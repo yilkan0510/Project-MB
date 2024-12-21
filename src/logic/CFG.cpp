@@ -6,48 +6,56 @@
 #include <regex>
 #include <queue>
 
-CFG::CFG(string Filename) {
-    ifstream input(Filename);
-    if (!input) {
-        cerr << "Unable to open file " << Filename << endl;
+CFG::CFG(std::string Filename) {
+  std::ifstream input(Filename);
+  if (!input) {
+    std::cerr << "Unable to open file " << Filename << std::endl;
+    exit(1);
+  }
+  nlohmann::json j;
+  input >> j;
+
+  // 1) Non-terminals
+  nonTerminals = j["Variables"].get<std::set<std::string>>();
+
+  // 2) Terminals
+  for (const auto &terminal : j["Terminals"]) {
+    // read the first character if you only want single-char terminals
+    // e.g. "a" => 'a'
+    // If your grammar supports multi-char terminals, you need a different approach.
+    std::string t = terminal.get<std::string>();
+    if (t.size() != 1) {
+      std::cerr << "Error: Terminal \"" << t << "\" is not a single character.\n";
+      exit(1);
+    }
+    terminals.insert(t[0]);
+  }
+
+  // 3) Production rules
+  // This is the CORRECT loop: no nested loops,
+  // read each 'production' from j["Productions"] once.
+  for (const auto &prod : j["Productions"]) {
+    std::string head = prod["head"].get<std::string>();
+
+    // Build the body as a concatenation of single-char symbols
+    std::string body;
+    for (auto &symJson : prod["body"]) {
+      std::string sym = symJson.get<std::string>();
+      // If your grammar truly only allows single-char symbols in the body,
+      // check sym.size() == 1:
+      if (sym.size() != 1) {
+        std::cerr << "Error: multi-char symbol \"" << sym
+                  << "\" found. Only single-char symbols supported.\n";
         exit(1);
-    }
-    json j;
-    input >> j;
-
-    // nonterminals
-    nonTerminals = j["Variables"].get<set<string>>();
-
-    // terminals
-    for (const auto& terminal : j["Terminals"]) {
-        terminals.insert(terminal.get<string>()[0]);
-    }
-
-    // productionRules
-    for (const auto& production : j["Productions"]) {
-      string head = production["head"];
-      string body = "";
-      for (const auto &production : j["Productions"]) {
-        string head = production["head"];
-        string body;
-
-        for (auto &symJson : production["body"]) {
-          std::string sym = symJson.get<std::string>();
-          if (sym.size() != 1) {
-            cerr << "Error: multi-char symbol \"" << sym
-                 << "\" found. Only single-char symbols supported.\n";
-            exit(1);
-          }
-          body += sym; // e.g. "" + "A" => "A", then + "B" => "AB"
-        }
-
-        productionRules[head].push_back(body);
       }
+      body += sym;
     }
 
-    // startSymbol
-    startSymbol = j["Start"].get<string>();
+    productionRules[head].push_back(body);
+  }
 
+  // 4) Start Symbol
+  startSymbol = j["Start"].get<std::string>();
 }
 
 void CFG::print() {

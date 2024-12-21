@@ -63,6 +63,7 @@ public:
   std::vector<int> parsingStack;
 
   std::vector<std::string> stepExplanations;
+  std::vector<std::vector<int>> stackSnapshots;
 
 private:
   const CFG &cfg;
@@ -73,6 +74,7 @@ private:
   std::vector<LRState> states;
   std::map<std::pair<int,std::string>,int> gotoTable;
   std::map<std::pair<int,char>,LRAction> actionTable;
+
 
   bool isNonTerminal(const std::string &sym) const;
   bool isTerminal(char sym) const;

@@ -22,8 +22,14 @@
 // stb_image for image loading (implementation in stb_image_impl.cpp)
 #include "../stb/stb_image.h"
 
+// ================ Fix #1: Potentially your CFG constructor might fail ============
+// Make sure your CFG code can handle multi-character variables "A","B","S"
+// and single-character terminals 'a','b','c' without error.
+// That code isn't shown here, so we assume it's correct or you will fix it.
 
-// Forward declarations for GUI helpers
+//////////////////////////////////////////////////////////////////////////////////////
+// IMGUI helpers
+//////////////////////////////////////////////////////////////////////////////////////
 static void glfw_error_callback(int error, const char* description) {
   fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
@@ -31,15 +37,12 @@ static void glfw_error_callback(int error, const char* description) {
 static bool loadTextureFromFile(const char* filename, GLuint* out_texture, int* out_width, int* out_height) {
   int width, height, channels;
   unsigned char* data = stbi_load(filename, &width, &height, &channels, 4);
-  if (data == NULL)
-    return false;
+  if (data == NULL) return false;
 
   glGenTextures(1, out_texture);
   glBindTexture(GL_TEXTURE_2D, *out_texture);
-
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
   stbi_image_free(data);
 
@@ -48,87 +51,77 @@ static bool loadTextureFromFile(const char* filename, GLuint* out_texture, int* 
   return true;
 }
 
-// Dummy functions for generating dot files. You must implement these:
+//////////////////////////////////////////////////////////////////////////////////////
+// Dot generation
+//////////////////////////////////////////////////////////////////////////////////////
+
+// For a plain CFG
 static void generateDotFileForGrammar(const CFG &cfg, const std::string &filename) {
   std::ofstream out(filename);
+  if(!out){
+    std::cerr << "Cannot open " << filename << " for writing CFG.\n";
+    return;
+  }
+
   out << "digraph G {\n";
-  out << "rankdir=LR;\n";
-  // Show non-terminals as nodes
+  out << "  rankdir=LR;\n";
+
+  // Show non-terminals as box nodes
   for (auto &nt : cfg.getNonTerminals()) {
-    out << "\"" << nt << "\" [shape=box];\n";
+    out << "  \"" << nt << "\" [shape=box];\n";
   }
   // Show edges from NT to each production body symbol
   for (auto &rule : cfg.getProductionRules()) {
     for (auto &body : rule.second) {
-      // Represent body as a single string for simplicity
-      out << "\"" << rule.first << "\" -> \"" << body << "\";\n";
+      // Represent body as a single string
+      out << "  \"" << rule.first << "\" -> \"" << body << "\";\n";
     }
   }
   out << "}\n";
+  out.close();
 }
 
+// For Earley
 static void generateDotFileForParserState(const EarleyParser &parser, const std::string &filename) {
   const auto &chart = parser.getChart();
   std::ofstream out(filename);
   if (!out) {
-    std::cerr << "Cannot open file " << filename << " for writing.\n";
+    std::cerr << "Cannot open " << filename << " for writing Earley.\n";
     return;
   }
 
   out << "digraph EarleyChart {\n";
-  // Lay out subgraphs left-to-right
   out << "  rankdir=LR;\n\n";
 
-  // We'll store the names of "dummy nodes" for each chart cluster
-  // so we can connect cluster_i -> cluster_(i+1)
   std::vector<std::string> clusterDummies;
 
-  // For each chart index i, we create a subgraph "cluster_i"
   for (size_t i = 0; i < chart.size(); i++) {
     out << "  subgraph cluster_" << i << " {\n";
     out << "    label = \"Chart[" << i << "]\";\n";
     out << "    color=black;\n";
     out << "    style=\"rounded\";\n\n";
 
-    // Create one dummy node inside this cluster to represent the subgraph itself
-    // We'll connect these dummy nodes from cluster to cluster
     std::string dummyName = "clusterDummy_" + std::to_string(i);
-    out << "    " << dummyName
-        << " [shape=point, label=\"\", style=invis];\n";
+    out << "    " << dummyName << " [shape=point, label=\"\", style=invis];\n";
     clusterDummies.push_back(dummyName);
 
     int itemIndex = 0;
     for (const auto &item : chart[i]) {
-      // Skip S' if you don't want augmented rules
-      if (item.head == "S'") {
-        continue;
-      }
+      if (item.head == "S'") continue; // skip augmented
 
-      // Node name
+      // Node
       std::string nodeName = "Item_" + std::to_string(i) + "_" + std::to_string(itemIndex);
 
-      // Insert the '•'
       std::string dotBody = item.body;
       if (item.dotPos <= dotBody.size()) {
         dotBody.insert(item.dotPos, "•");
       }
+      std::string itemLabel = item.head + " -> " + dotBody + " (start=" + std::to_string(item.startIdx) + ")";
 
-      // Build label: e.g. "S -> A•B (start=0)"
-      std::string itemLabel = item.head + " -> " + dotBody +
-                              " (start=" + std::to_string(item.startIdx) + ")";
-
-      // Color code the fill color
-      // dotPos == 0 => red
-      // 0 < dotPos < body.size() => yellow
-      // dotPos == body.size() => green
       std::string fillColor = "white";
-      if (item.dotPos == 0) {
-        fillColor = "red";     // predict
-      } else if (item.dotPos < item.body.size()) {
-        fillColor = "yellow";  // scan
-      } else {
-        fillColor = "green";   // complete
-      }
+      if (item.dotPos == 0) fillColor = "red";
+      else if (item.dotPos < item.body.size()) fillColor = "yellow";
+      else fillColor = "green";
 
       out << "    " << nodeName
           << " [shape=circle, style=filled, fillcolor=" << fillColor
@@ -140,13 +133,11 @@ static void generateDotFileForParserState(const EarleyParser &parser, const std:
     out << "  }\n\n";
   }
 
-  // Now connect each subgraph's dummy node to the next subgraph's dummy node
   for (size_t i = 1; i < chart.size(); i++) {
     out << "  " << clusterDummies[i-1] << " -> " << clusterDummies[i]
         << " [style=bold, color=black, penwidth=2.0];\n";
   }
 
-  // If parser done => Accept or Reject node
   if (parser.isDone()) {
     bool accepted = parser.isAccepted();
     std::string finalNodeName = accepted ? "Accepted" : "Rejected";
@@ -156,7 +147,6 @@ static void generateDotFileForParserState(const EarleyParser &parser, const std:
         << " [shape=" << shape << ", style=filled, fillcolor=" << color
         << ", label=\"" << finalNodeName << "\"];\n";
 
-    // Link from last subgraph's dummy node to final node
     if (!chart.empty()) {
       size_t lastIndex = chart.size() - 1;
       out << "  " << clusterDummies[lastIndex] << " -> "
@@ -168,15 +158,86 @@ static void generateDotFileForParserState(const EarleyParser &parser, const std:
   out.close();
 }
 
+// For GLR
+void generateDotFileForGLRParser(const GLRParser &parser, const std::string &filename) {
+  std::ofstream out(filename);
+  if (!out) {
+    std::cerr << "Cannot open " << filename << " for writing GLR.\n";
+    return;
+  }
 
+  out << "digraph GLR {\n";
+  out << "  rankdir=LR;\n\n";
 
+  const auto &snapshots = parser.stackSnapshots;
+  size_t nCols = snapshots.size();
 
+  std::vector<std::string> dummyNodes(nCols);
+
+  for (size_t i = 0; i < nCols; i++) {
+    out << "  subgraph cluster_" << i << " {\n";
+    out << "    label = \"Pos[" << i << "]\";\n";
+    out << "    color=black;\n";
+    out << "    style=\"rounded\";\n\n";
+
+    std::string dummyName = "dummy_" + std::to_string(i);
+    dummyNodes[i] = dummyName;
+    out << "    " << dummyName << " [shape=point, style=invis, label=\"\"];\n\n";
+
+    const auto &stackStates = snapshots[i];
+    std::string prevNode;
+    for (size_t s = 0; s < stackStates.size(); s++) {
+      int st = stackStates[s];
+      std::string nodeName = "Stack_" + std::to_string(i) + "_" + std::to_string(s);
+
+      out << "    " << nodeName
+          << " [shape=circle, style=filled, fillcolor=white, "
+          << "label=\"State " << st << "\"];\n";
+
+      if (!prevNode.empty()) {
+        out << "    " << nodeName << " -> " << prevNode
+            << " [style=dotted, arrowhead=none];\n";
+      }
+      prevNode = nodeName;
+    }
+
+    out << "  }\n\n";
+  }
+
+  for (size_t i = 1; i < nCols; i++) {
+    out << "  " << dummyNodes[i-1] << " -> " << dummyNodes[i]
+        << " [style=bold, penwidth=2.0];\n";
+  }
+
+  if (parser.isDone()) {
+    bool accepted = parser.isAccepted();
+    std::string finalLabel = accepted ? "Accepted" : "Rejected";
+    std::string shape = accepted ? "doublecircle" : "octagon";
+    std::string color = accepted ? "green" : "grey";
+
+    out << "  " << finalLabel << " [shape=" << shape
+        << ", style=filled, fillcolor=" << color
+        << ", label=\"" << finalLabel << "\"];\n";
+
+    if (nCols > 0) {
+      out << "  " << dummyNodes[nCols - 1] << " -> " << finalLabel
+          << " [penwidth=2.0];\n";
+    }
+  }
+
+  out << "}\n";
+  out.close();
+}
+
+// Convert dot to png
 static void runDotToPng(const std::string &dotFile, const std::string &pngFile) {
   std::string cmd = "dot -Tpng -o " + pngFile + " " + dotFile;
   system(cmd.c_str());
 }
 
-// Globals for GUI state
+//////////////////////////////////////////////////////////////////////////////////////
+// Global State
+//////////////////////////////////////////////////////////////////////////////////////
 static char grammarPath[256] = "../src/JSON/CFG4.json";
 static char inputString[256] = "";
 static std::string parseResultEarley = "";
@@ -188,7 +249,6 @@ static bool earleyFinished = false;
 static bool stepByStepGLR = false;
 static bool glrFinished = false;
 
-// Visualization
 static bool showGraphWindow = false;
 static GLuint graphTexture = 0;
 static int graphTexWidth = 0;
@@ -196,7 +256,6 @@ static int graphTexHeight = 0;
 static std::string currentDotFile = "state.dot";
 static std::string currentPngFile = "state.png";
 
-// CFG Maker (previously CFG Editor)
 static bool cfgMakerOpen = false;
 static std::set<std::string> editorNonTerminals;
 static std::set<char> editorTerminals;
@@ -207,61 +266,23 @@ static char prodHead[16] = "";
 static char prodBody[256] = "";
 static char editorStartSymbol[16] = "";
 
-// Import menu
 static bool importMenuOpen = false;
 static std::string grammarsDir = "../grammars/";
 static std::vector<std::string> availableGrammars;
 
-// Export menu
 static bool exportMenuOpen = false;
 static char exportBaseName[256] = "exported";
 static std::string exportDir = "../exports/";
 
-// Current CFG and parsers
 static std::unique_ptr<CFG> currentCFG;
 static std::unique_ptr<EarleyParser> earleyParser;
 static std::unique_ptr<GLRParser> glrParser;
 
 static bool showLegendWindow = false;
 
-
-static void generateDotFileForGLRState(const GLRParser &parser, const std::string &filename) {
-  std::ofstream out(filename);
-  out << "digraph GLRStack {\n";
-  out << "rankdir=LR;\n"; // horizontal
-
-  // Suppose parser.parsingStack is a vector<int> of states
-  // and parser.stepExplanations has one entry per step
-  for (size_t i=0; i<parser.parsingStack.size(); i++) {
-    out << "State" << i << " [shape=box,label=\"State " << parser.parsingStack[i] << "\"];\n";
-    if (i>0) out << "State" << (i-1) << "->State" << i << ";\n";
-    if (i < parser.stepExplanations.size()) {
-      // Explanation node for this state
-      out << "ExplainGLR" << i << " [shape=note,label=\"" << parser.stepExplanations[i] << "\"];\n";
-      out << "State" << i << "->ExplainGLR" << i << ";\n";
-    }
-  }
-
-  if (parser.isDone()) {
-    if (parser.isAccepted()) {
-      out << "Accepted [shape=doublecircle,label=\"ACCEPT\"];\n";
-      if (!parser.parsingStack.empty()) {
-        out << "State" << (parser.parsingStack.size()-1) << "->Accepted;\n";
-      }
-    } else {
-      out << "Rejected [shape=diamond,label=\"REJECTED\"];\n";
-      if (!parser.parsingStack.empty()) {
-        out << "State" << (parser.parsingStack.size()-1) << "->Rejected;\n";
-      }
-    }
-  }
-
-  out << "}\n";
-}
-
-
-
-// Helper: Refresh directory listing
+//////////////////////////////////////////////////////////////////////////////////////
+// Refresh listing
+//////////////////////////////////////////////////////////////////////////////////////
 static void refreshAvailableGrammars() {
   availableGrammars.clear();
   for (auto &entry : std::filesystem::directory_iterator(grammarsDir)) {
@@ -271,18 +292,27 @@ static void refreshAvailableGrammars() {
   }
 }
 
+//////////////////////////////////////////////////////////////////////////////////////
+// Update Graph Visualization
+//////////////////////////////////////////////////////////////////////////////////////
 static void updateGraphVisualization() {
+  // 1) If Earley step mode or done => generateEarley
   if (earleyParser && (stepByStepEarley || earleyParser->isDone())) {
-    // If Earley parser exists and either we are in step-by-step or done,
-    // show the chart sets.
     generateDotFileForParserState(*earleyParser, currentDotFile);
+
+    // 2) else if no earley step => do grammar
   } else if (currentCFG) {
     generateDotFileForGrammar(*currentCFG, currentDotFile);
   }
-  // If we have a GLR parser and we are in step-by-step or finished parsing, show GLR stack
+
+  // 3) If GLR step mode or done => generate GLR
   if (glrParser && (stepByStepGLR || glrParser->isDone())) {
-    generateDotFileForGLRState(*glrParser, currentDotFile);
-  } else if (earleyParser && (stepByStepEarley || earleyParser->isDone())) {
+    generateDotFileForGLRParser(*glrParser, currentDotFile);
+  }
+  // else if not step glr => do nothing special for glr
+
+  // If none => do final else
+  else if (earleyParser && (stepByStepEarley || earleyParser->isDone())) {
     generateDotFileForParserState(*earleyParser, currentDotFile);
   } else if (currentCFG) {
     generateDotFileForGrammar(*currentCFG, currentDotFile);
@@ -301,15 +331,18 @@ static void updateGraphVisualization() {
   loadTextureFromFile(currentPngFile.c_str(), &graphTexture, &graphTexWidth, &graphTexHeight);
 }
 
-
-// Save the CFG made in the CFG Maker to JSON
+//////////////////////////////////////////////////////////////////////////////////////
+// Save CFG
+//////////////////////////////////////////////////////////////////////////////////////
 static void saveEditorCFGToJSON(const std::string &path) {
-  // Build JSON-like structure
-  // Ensure that editorStartSymbol is a valid non-terminal
-  // For simplicity, no error checking here
+  // Build JSON
   std::ofstream out(path);
+  if(!out){
+    std::cerr << "Cannot open " << path << " to write JSON.\n";
+    return;
+  }
+
   out << "{\n";
-  // Variables
   out << "  \"Variables\": [";
   {
     bool first=true;
@@ -321,7 +354,6 @@ static void saveEditorCFGToJSON(const std::string &path) {
   }
   out << "],\n";
 
-  // Terminals
   out << "  \"Terminals\": [";
   {
     bool first=true;
@@ -333,7 +365,6 @@ static void saveEditorCFGToJSON(const std::string &path) {
   }
   out << "],\n";
 
-  // Productions
   out << "  \"Productions\": [\n";
   {
     bool firstOuter=true;
@@ -341,9 +372,6 @@ static void saveEditorCFGToJSON(const std::string &path) {
       for (auto &body : rule.second) {
         if (!firstOuter) out << ",\n";
         out << "    {\"head\": \"" << rule.first << "\", \"body\": [";
-        // body is a single string of concatenated symbols
-        // We must split it into separate symbols if needed
-        // For simplicity, assume each symbol is one character
         bool firstInner=true;
         for (size_t i=0; i<body.size(); i++) {
           if (!firstInner) out << ", ";
@@ -358,11 +386,13 @@ static void saveEditorCFGToJSON(const std::string &path) {
   }
   out << "\n  ],\n";
 
-  // Start
   out << "  \"Start\": \"" << editorStartSymbol << "\"\n";
   out << "}\n";
 }
 
+//////////////////////////////////////////////////////////////////////////////////////
+// main
+//////////////////////////////////////////////////////////////////////////////////////
 int main(int, char**)
 {
   glfwSetErrorCallback(glfw_error_callback);
@@ -398,20 +428,23 @@ int main(int, char**)
   refreshAvailableGrammars();
   updateGraphVisualization();
 
-  while (!glfwWindowShouldClose(window))
-  {
+  // Main loop
+  while (!glfwWindowShouldClose(window)) {
     glfwPollEvents();
-
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    // Create a dockspace
+    // Dockspace
     {
       static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
-      ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
-                                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus |
-                                      ImGuiWindowFlags_NoNavFocus;
+      ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDocking
+                                      | ImGuiWindowFlags_NoTitleBar
+                                      | ImGuiWindowFlags_NoCollapse
+                                      | ImGuiWindowFlags_NoResize
+                                      | ImGuiWindowFlags_NoMove
+                                      | ImGuiWindowFlags_NoBringToFrontOnFocus
+                                      | ImGuiWindowFlags_NoNavFocus;
 
       ImGuiViewport* viewport = ImGui::GetMainViewport();
       ImGui::SetNextWindowPos(viewport->WorkPos);
@@ -425,12 +458,10 @@ int main(int, char**)
 
       ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
       ImGui::DockSpace(dockspace_id, ImVec2(0.0f,0.0f), dockspace_flags);
-
       ImGui::End();
     }
 
-
-    // Main Menu Bar
+    // Main menu bar
     if (ImGui::BeginMainMenuBar()) {
       if (ImGui::BeginMenu("File")) {
         if (ImGui::MenuItem("Import")) {
@@ -467,68 +498,62 @@ int main(int, char**)
       ImGui::InputText("Base Name", exportBaseName, IM_ARRAYSIZE(exportBaseName));
       if (ImGui::Button("Export Now")) {
         if (currentCFG) {
-          // Export JSON
+          // Build JSON
           std::string jsonExport = exportDir + std::string(exportBaseName) + ".json";
-          // Implement a function to save the currentCFG to JSON
-          // Since we have a CFG object, mimic the structure of your saveEditorCFGToJSON:
-          // (This requires you to write a similar function that takes currentCFG and writes it out)
-
-          // Example (pseudo-code):
-          std::ofstream out(jsonExport);
-          out << "{\n";
-          // Write Variables
-          out << "  \"Variables\": [";
-          bool first=true;
-          for (auto &v : currentCFG->getNonTerminals()) {
-            if (!first) out << ", ";
-            out << "\"" << v << "\"";
-            first=false;
-          }
-          out << "],\n";
-
-          // Write Terminals
-          out << "  \"Terminals\": [";
-          first=true;
-          for (auto t : currentCFG->getTerminals()) {
-            if (!first) out << ", ";
-            out << "\"" << t << "\"";
-            first=false;
-          }
-          out << "],\n";
-
-          // Write Productions
-          out << "  \"Productions\": [\n";
           {
-            bool firstOuter = true;
-            for (auto &rule : currentCFG->getProductionRules()) {
-              for (auto &body : rule.second) {
-                if (!firstOuter) out << ",\n";
-                out << "    {\"head\": \"" << rule.first << "\", \"body\": [";
-                bool firstInner=true;
-                for (auto &c : body) {
-                  if (!firstInner) out << ", ";
-                  out << "\"" << c << "\"";
-                  firstInner=false;
-                }
-                out << "]}";
-                firstOuter = false;
+            std::ofstream out(jsonExport);
+            if(out) {
+              // Just mimic your currentCFG -> JSON
+              // or call saveCFGToJSON if you had one
+              // We'll do a simplistic approach:
+              out << "{\n";
+              out << "  \"Variables\": [";
+              bool first=true;
+              for (auto &v : currentCFG->getNonTerminals()) {
+                if (!first) out << ", ";
+                out << "\"" << v << "\"";
+                first=false;
               }
+              out << "],\n";
+              out << "  \"Terminals\": [";
+              first=true;
+              for (auto t : currentCFG->getTerminals()) {
+                if (!first) out << ", ";
+                out << "\"" << t << "\"";
+                first=false;
+              }
+              out << "],\n";
+              out << "  \"Productions\": [\n";
+              bool firstOuter=true;
+              for (auto &rule : currentCFG->getProductionRules()) {
+                for (auto &body : rule.second) {
+                  if (!firstOuter) out << ",\n";
+                  out << "    {\"head\": \"" << rule.first << "\", \"body\": [";
+                  bool firstInner=true;
+                  for (auto &c : body) {
+                    if(!firstInner) out << ", ";
+                    out << "\"" << c << "\"";
+                    firstInner=false;
+                  }
+                  out << "]}";
+                  firstOuter = false;
+                }
+              }
+              out << "\n  ],\n";
+              out << "  \"Start\": \"" << currentCFG->getStartSymbol() << "\"\n";
+              out << "}\n";
             }
           }
-          out << "\n  ],\n";
 
-          // Write Start
-          out << "  \"Start\": \"" << currentCFG->getStartSymbol() << "\"\n";
-          out << "}\n";
-
-          // Export DOT and PNG
+          // Dot & png export
           std::string dotExport = exportDir + std::string(exportBaseName) + ".dot";
+          // We'll just do the grammar or earley:
           if (stepByStepEarley && earleyParser) {
             generateDotFileForParserState(*earleyParser, dotExport);
-          } else if (currentCFG) {
+          } else {
+            // fallback: just the grammar
             generateDotFileForGrammar(*currentCFG, dotExport);
           }
-
           std::string pngExport = exportDir + std::string(exportBaseName) + ".png";
           std::string cmd = "dot -Tpng -o " + pngExport + " " + dotExport;
           system(cmd.c_str());
@@ -542,67 +567,49 @@ int main(int, char**)
     if (cfgMakerOpen) {
       ImGui::Begin("CFG Maker", &cfgMakerOpen);
       ImGui::Text("Create your CFG here.");
-      // Start Symbol Section
       ImGui::Separator();
       ImGui::Text("Start Symbol:");
 
       if (strlen(editorStartSymbol) > 0) {
-        // A start symbol is already set, display it with a bullet and X button
         ImGui::BulletText("%s (Start)", editorStartSymbol);
         ImGui::SameLine();
         if (ImGui::Button("X##StartSymbol")) {
-          // User clicked X to remove the start symbol
-          // If this start symbol is in non-terminals, remove it from there as well
           std::string sSymbol(editorStartSymbol);
           if (editorNonTerminals.count(sSymbol)) {
             editorNonTerminals.erase(sSymbol);
           }
-          editorStartSymbol[0] = '\0'; // Clear the start symbol
+          editorStartSymbol[0] = '\0';
         }
         ImGui::Text("To change the start symbol, remove it first, then add a new one.");
       } else {
-        // No start symbol set yet, allow user to input one and add it
         static char tempStartSymbol[16] = "";
         ImGui::InputText("Enter Start Symbol", tempStartSymbol, IM_ARRAYSIZE(tempStartSymbol));
         if (ImGui::Button("Add Start Symbol")) {
-          if (strlen(tempStartSymbol) > 0) {
+          if (strlen(tempStartSymbol)>0) {
             std::string sSymbol(tempStartSymbol);
-            // Ensure start symbol not in terminals
-            // If sSymbol is one character and is in terminals, remove it
-            if (sSymbol.size() == 1 && editorTerminals.count(sSymbol[0])) {
-              // Remove from terminals since start symbol must be a non-terminal
+            if (sSymbol.size()==1 && editorTerminals.count(sSymbol[0])) {
               editorTerminals.erase(sSymbol[0]);
             }
-
-            // Add the start symbol to non-terminals if not present
-            if (!editorNonTerminals.count(sSymbol)) {
+            if(!editorNonTerminals.count(sSymbol)) {
               editorNonTerminals.insert(sSymbol);
             }
-
-            // Set the editorStartSymbol
             strncpy(editorStartSymbol, tempStartSymbol, IM_ARRAYSIZE(editorStartSymbol));
-            tempStartSymbol[0] = '\0';
+            tempStartSymbol[0]='\0';
           }
         }
       }
 
-      // Now continue with your Non-terminals, Terminals, and Productions code as before...
-
-
       ImGui::Separator();
       ImGui::Text("Non-terminals:");
       {
-        // Non-terminals display and deletion
         std::vector<std::string> ntemp(editorNonTerminals.begin(), editorNonTerminals.end());
         for (auto &nt : ntemp) {
           ImGui::BulletText("%s", nt.c_str());
           ImGui::SameLine();
-
           std::string delButton = "X##NT_" + nt;
           if (ImGui::Button(delButton.c_str())) {
-            // If this non-terminal is the start symbol, clear it
-            if (nt == editorStartSymbol) {
-              editorStartSymbol[0] = '\0'; // Clear the start symbol since we removed it
+            if(nt == editorStartSymbol) {
+              editorStartSymbol[0] = '\0';
             }
             editorNonTerminals.erase(nt);
             break;
@@ -610,8 +617,8 @@ int main(int, char**)
         }
       }
       ImGui::InputText("Add Non-terminal", newNonTerminal, IM_ARRAYSIZE(newNonTerminal));
-      if (ImGui::Button("Add NT")) {
-        if (strlen(newNonTerminal)>0) {
+      if(ImGui::Button("Add NT")) {
+        if(strlen(newNonTerminal)>0) {
           editorNonTerminals.insert(newNonTerminal);
           newNonTerminal[0]='\0';
         }
@@ -621,35 +628,30 @@ int main(int, char**)
       ImGui::Text("Terminals:");
       {
         std::vector<char> ttemp(editorTerminals.begin(), editorTerminals.end());
-        for (auto t : ttemp) {
+        for (auto t: ttemp) {
           ImGui::BulletText("%c", t);
           ImGui::SameLine();
           std::string delButton = "X##T_";
           delButton.push_back(t);
-          if (ImGui::Button(delButton.c_str())) {
+          if(ImGui::Button(delButton.c_str())) {
             editorTerminals.erase(t);
             break;
           }
         }
       }
       ImGui::InputText("Add Terminal", newTerminal, IM_ARRAYSIZE(newTerminal));
-      if (ImGui::Button("Add T")) {
+      if(ImGui::Button("Add T")) {
+        // skip if same as NT
         for (const auto &nt : editorNonTerminals) {
-          if (std::string(newTerminal) == nt) {
+          if(std::string(newTerminal)==nt) {
             newTerminal[0]='\0';
             break;
           }
         }
-        if (strlen(newTerminal)==1) {
-          char t = newTerminal[0];
-          std::string termSymbol(1, t);
-
-          // Check if the termSymbol is the same as the current start symbol
-          if (termSymbol == editorStartSymbol) {
-            // show a warning or just skip adding
-            // For example, we can print a message in ImGui:
+        if(strlen(newTerminal)==1) {
+          char t=newTerminal[0];
+          if(std::string(1,t) == editorStartSymbol) {
             ImGui::TextColored(ImVec4(1,0,0,1), "Cannot add start symbol as terminal!");
-            // do NOT insert into editorTerminals
           } else {
             editorTerminals.insert(t);
             newTerminal[0]='\0';
@@ -660,40 +662,27 @@ int main(int, char**)
       ImGui::Separator();
       ImGui::Text("Productions:");
       {
-        // We'll show "head -> body"
-        // Also allow deletion of each production
-        // Careful removal: We'll create a new structure after removals
-
-        // We'll store a list of (head,body) to handle removal
-        struct ProdItem {
-          std::string head;
-          std::string body;
-        };
+        struct ProdItem { std::string head; std::string body; };
         std::vector<ProdItem> allProds;
         for (auto &rule : editorProductions) {
           for (auto &bd : rule.second) {
             allProds.push_back({rule.first, bd});
           }
         }
-
-        bool removedOne = false;
+        bool removedOne=false;
         ProdItem toRemove;
-        for (auto &p : allProds) {
+        for(auto &p: allProds) {
           ImGui::BulletText("%s -> %s", p.head.c_str(), p.body.c_str());
           ImGui::SameLine();
-          std::string delButton = "X##P_" + p.head + "_" + p.body;
-          if (ImGui::Button(delButton.c_str())) {
-            removedOne = true;
-            toRemove = p;
-            break;
+          std::string delBut = "X##P_"+p.head+"_"+p.body;
+          if(ImGui::Button(delBut.c_str())) {
+            removedOne=true; toRemove=p; break;
           }
         }
-
-        if (removedOne) {
-          // Remove toRemove from editorProductions
+        if(removedOne) {
           auto &vec = editorProductions[toRemove.head];
           vec.erase(std::remove(vec.begin(), vec.end(), toRemove.body), vec.end());
-          if (vec.empty()) {
+          if(vec.empty()) {
             editorProductions.erase(toRemove.head);
           }
         }
@@ -701,8 +690,8 @@ int main(int, char**)
 
       ImGui::InputText("Prod Head", prodHead, IM_ARRAYSIZE(prodHead));
       ImGui::InputText("Prod Body (symbols concatenated)", prodBody, IM_ARRAYSIZE(prodBody));
-      if (ImGui::Button("Add Production")) {
-        if (strlen(prodHead)>0 && editorNonTerminals.count(prodHead)>0) {
+      if(ImGui::Button("Add Production")) {
+        if(strlen(prodHead)>0 && editorNonTerminals.count(prodHead)>0) {
           editorProductions[prodHead].push_back(std::string(prodBody));
           prodHead[0]='\0';
           prodBody[0]='\0';
@@ -710,75 +699,66 @@ int main(int, char**)
       }
 
       ImGui::Separator();
-      if (ImGui::Button("Save as JSON |CreatedJson.json| ")) {
+      if(ImGui::Button("Save as JSON |CreatedJson.json| ")) {
         std::string savePath = grammarsDir + std::string("CreatedJson.json");
         saveEditorCFGToJSON(savePath);
-
-        // Load it into currentCFG
         try {
           currentCFG = std::make_unique<CFG>(savePath);
           earleyParser = std::make_unique<EarleyParser>(*currentCFG);
           glrParser = std::make_unique<GLRParser>(*currentCFG);
           updateGraphVisualization();
-
-          // After saving and loading, refresh the import menu
           refreshAvailableGrammars();
-        } catch(...) {
-          // handle error if any
-        }
+        }catch(...){}
       }
-
-
       ImGui::End();
     }
 
-    // Main window for parsing
+    // Main parsing controls
     ImGui::Begin("Main Controls");
     ImGui::InputText("CFG File Path", grammarPath, IM_ARRAYSIZE(grammarPath));
-    if (ImGui::Button("Load Grammar")) {
+    if(ImGui::Button("Load Grammar")) {
       try {
         currentCFG = std::make_unique<CFG>(grammarPath);
         earleyParser = std::make_unique<EarleyParser>(*currentCFG);
         glrParser = std::make_unique<GLRParser>(*currentCFG);
         parseResultEarley = "Grammar Loaded!";
         parseResultGLR = "Grammar Loaded!";
-        stepByStepEarley = false;
-        earleyFinished = false;
-        stepByStepGLR = false;
-        glrFinished = false;
+        stepByStepEarley=false;
+        earleyFinished=false;
+        stepByStepGLR=false;
+        glrFinished=false;
         updateGraphVisualization();
-      } catch(...) {
-        parseResultEarley = "Failed to load grammar";
-        parseResultGLR = "Failed to load grammar";
+      }catch(...){
+        parseResultEarley="Failed to load grammar";
+        parseResultGLR="Failed to load grammar";
       }
     }
 
     ImGui::InputText("Input String", inputString, IM_ARRAYSIZE(inputString));
 
-    // Parser Buttons
-    if (ImGui::Button("Earley Parse (Full)")) {
-      if (earleyParser) {
+    // Earley
+    if(ImGui::Button("Earley Parse (Full)")) {
+      if(earleyParser) {
         bool res = earleyParser->parse(inputString);
-        parseResultEarley = res ? "Accepted" : "Rejected";
+        parseResultEarley = res?"Accepted":"Rejected";
         updateGraphVisualization();
       }
     }
     ImGui::SameLine();
-    if (ImGui::Button("Earley Step-by-Step")) {
-      if (earleyParser) {
+    if(ImGui::Button("Earley Step-by-Step")) {
+      if(earleyParser) {
         earleyParser->reset(inputString);
-        stepByStepEarley = true;
-        earleyFinished = false;
+        stepByStepEarley=true;
+        earleyFinished=false;
         updateGraphVisualization();
       }
     }
-
-    if (stepByStepEarley && !earleyFinished) {
-      if (ImGui::Button("Next Step (Earley)")) {
+    if(stepByStepEarley && !earleyFinished) {
+      if(ImGui::Button("Next Step (Earley)")) {
         bool cont = earleyParser->nextStep();
-        if (!cont) {
-          earleyFinished = true;
-          parseResultEarley = earleyParser->isAccepted() ? "Accepted" : "Rejected";
+        if(!cont) {
+          earleyFinished=true;
+          parseResultEarley = earleyParser->isAccepted()?"Accepted":"Rejected";
         }
         updateGraphVisualization();
       }
@@ -786,34 +766,32 @@ int main(int, char**)
 
     ImGui::Separator();
 
-    if (ImGui::Button("GLR Parse (Full)")) {
-      if (glrParser) {
+    // GLR
+    if(ImGui::Button("GLR Parse (Full)")) {
+      if(glrParser) {
         glrParser->reset(inputString);
-        // Run until done
-        while (!glrParser->isDone()) {
+        while(!glrParser->isDone()) {
           glrParser->nextStep();
         }
-        parseResultGLR = glrParser->isAccepted() ? "Accepted" : "Rejected";
+        parseResultGLR = glrParser->isAccepted()?"Accepted":"Rejected";
         updateGraphVisualization();
       }
     }
     ImGui::SameLine();
-
-    if (ImGui::Button("GLR Step-by-Step")) {
-      if (glrParser) {
+    if(ImGui::Button("GLR Step-by-Step")) {
+      if(glrParser) {
         glrParser->reset(inputString);
-        stepByStepGLR = true;
-        glrFinished = false;
+        stepByStepGLR=true;
+        glrFinished=false;
         updateGraphVisualization();
       }
     }
-
-    if (stepByStepGLR && !glrFinished) {
-      if (ImGui::Button("Next Step (GLR)")) {
+    if(stepByStepGLR && !glrFinished) {
+      if(ImGui::Button("Next Step (GLR)")) {
         bool cont = glrParser->nextStep();
-        if (!cont) {
-          glrFinished = true;
-          parseResultGLR = glrParser->isAccepted() ? "Accepted" : "Rejected";
+        if(!cont){
+          glrFinished=true;
+          parseResultGLR = glrParser->isAccepted()?"Accepted":"Rejected";
         }
         updateGraphVisualization();
       }
@@ -823,20 +801,20 @@ int main(int, char**)
     ImGui::Text("Earley result: %s", parseResultEarley.c_str());
     ImGui::Text("GLR result:   %s", parseResultGLR.c_str());
 
-    if (ImGui::Button("Show Graph")) {
-      showGraphWindow = true;
+    if(ImGui::Button("Show Graph")) {
+      showGraphWindow=true;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Show Legend")) {
-      showLegendWindow = true;
+    if(ImGui::Button("Show Legend")) {
+      showLegendWindow=true;
     }
 
     ImGui::End();
 
     // Graph Window
-    if (showGraphWindow) {
+    if(showGraphWindow) {
       ImGui::Begin("Graph Visualization", &showGraphWindow);
-      if (graphTexture) {
+      if(graphTexture) {
         ImGui::Text("Graph (width=%d, height=%d):", graphTexWidth, graphTexHeight);
         ImGui::Image((ImTextureID)(intptr_t)graphTexture, ImVec2((float)graphTexWidth, (float)graphTexHeight));
       } else {
@@ -845,21 +823,22 @@ int main(int, char**)
       ImGui::End();
     }
 
-    if (showLegendWindow) {
+    // Legend
+    if(showLegendWindow) {
       ImGui::Begin("Legend", &showLegendWindow);
       ImGui::Text("Earley Parser Color Legend:");
-      ImGui::BulletText("Red:    Predict");
-      ImGui::BulletText("Yellow: Scan");
-      ImGui::BulletText("Green:  Complete");
+      ImGui::BulletText("Red:    Predict (dotPos=0)");
+      ImGui::BulletText("Yellow: Scan    (0 < dotPos < len)");
+      ImGui::BulletText("Green:  Complete(dotPos= len)");
       ImGui::BulletText("Accept: doublecircle, green node");
       ImGui::BulletText("Reject: grey octagon node");
       ImGui::End();
     }
 
-    // Rendering
+    // Render
     ImGui::Render();
     int display_w, display_h;
-    glfwGetFramebufferSize(window,&display_w,&display_h);
+    glfwGetFramebufferSize(window, &display_w, &display_h);
     glViewport(0,0,display_w,display_h);
     glClearColor(0.45f,0.55f,0.60f,1.00f);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -868,6 +847,7 @@ int main(int, char**)
     glfwSwapBuffers(window);
   }
 
+  // shutdown
   ImGui_ImplOpenGL3_Shutdown();
   ImGui_ImplGlfw_Shutdown();
   ImGui::DestroyContext();

@@ -76,19 +76,34 @@ static void generateDotFileForParserState(const EarleyParser &parser, const std:
   }
 
   out << "digraph EarleyChart {\n";
-  // Left-to-right columns
+  // Lay out subgraphs left-to-right
   out << "  rankdir=LR;\n\n";
 
-  // We'll use subgraphs for each chart index
+  // We'll store the names of "dummy nodes" for each chart cluster
+  // so we can connect cluster_i -> cluster_(i+1)
+  std::vector<std::string> clusterDummies;
+
+  // For each chart index i, we create a subgraph "cluster_i"
   for (size_t i = 0; i < chart.size(); i++) {
-    // Create a subgraph cluster
     out << "  subgraph cluster_" << i << " {\n";
     out << "    label = \"Chart[" << i << "]\";\n";
-    out << "    color = black;\n";
-    out << "    style=\"rounded\";\n\n";  // round-corner box
+    out << "    color=black;\n";
+    out << "    style=\"rounded\";\n\n";
+
+    // Create one dummy node inside this cluster to represent the subgraph itself
+    // We'll connect these dummy nodes from cluster to cluster
+    std::string dummyName = "clusterDummy_" + std::to_string(i);
+    out << "    " << dummyName
+        << " [shape=point, label=\"\", style=invis];\n";
+    clusterDummies.push_back(dummyName);
 
     int itemIndex = 0;
     for (const auto &item : chart[i]) {
+      // Skip S' if you don't want augmented rules
+      if (item.head == "S'") {
+        continue;
+      }
+
       // Node name
       std::string nodeName = "Item_" + std::to_string(i) + "_" + std::to_string(itemIndex);
 
@@ -98,42 +113,54 @@ static void generateDotFileForParserState(const EarleyParser &parser, const std:
         dotBody.insert(item.dotPos, "•");
       }
 
-      // Build a label: e.g. "S -> A•B (start=0)"
-      std::string itemLabel = item.head + " -> " + dotBody
-                              + " (start=" + std::to_string(item.startIdx) + ")";
+      // Build label: e.g. "S -> A•B (start=0)"
+      std::string itemLabel = item.head + " -> " + dotBody +
+                              " (start=" + std::to_string(item.startIdx) + ")";
 
-      // Choose a color based on a naive check:
-      // dotPos == 0 => "Predict" => red
-      // 0 < dotPos < body.size() => "Scan" => yellow
-      // dotPos == body.size() => "Complete" => green
+      // Color code the fill color
+      // dotPos == 0 => red
+      // 0 < dotPos < body.size() => yellow
+      // dotPos == body.size() => green
       std::string fillColor = "white";
       if (item.dotPos == 0) {
-        fillColor = "red";   // Predict
+        fillColor = "red";     // predict
       } else if (item.dotPos < item.body.size()) {
-        fillColor = "yellow"; // Scan
+        fillColor = "yellow";  // scan
       } else {
-        fillColor = "green";  // Complete
+        fillColor = "green";   // complete
       }
 
       out << "    " << nodeName
-          << " [shape=circle, label=\"" << itemLabel
-          << "\", style=filled, fillcolor=" << fillColor
-          << "];\n";
+          << " [shape=circle, style=filled, fillcolor=" << fillColor
+          << ", label=\"" << itemLabel << "\"];\n";
 
       itemIndex++;
     }
 
-    out << "  }\n\n"; // close subgraph cluster
+    out << "  }\n\n";
   }
 
-  // Connect cluster_(i-1) to cluster_i with a single arrow for left->right layout
+  // Now connect each subgraph's dummy node to the next subgraph's dummy node
   for (size_t i = 1; i < chart.size(); i++) {
-    // If both charts have at least one item, link the first item of (i-1) to first of i
-    if (!chart[i-1].empty() && !chart[i].empty()) {
-      std::string fromNode = "Item_" + std::to_string(i-1) + "_0";
-      std::string toNode   = "Item_" + std::to_string(i)   + "_0";
-      out << "  " << fromNode << " -> " << toNode
-          << " [style=bold, color=black, penwidth=2.0];\n";
+    out << "  " << clusterDummies[i-1] << " -> " << clusterDummies[i]
+        << " [style=bold, color=black, penwidth=2.0];\n";
+  }
+
+  // If parser done => Accept or Reject node
+  if (parser.isDone()) {
+    bool accepted = parser.isAccepted();
+    std::string finalNodeName = accepted ? "Accepted" : "Rejected";
+    std::string shape = accepted ? "doublecircle" : "octagon";
+    std::string color = accepted ? "green" : "grey";
+    out << "  " << finalNodeName
+        << " [shape=" << shape << ", style=filled, fillcolor=" << color
+        << ", label=\"" << finalNodeName << "\"];\n";
+
+    // Link from last subgraph's dummy node to final node
+    if (!chart.empty()) {
+      size_t lastIndex = chart.size() - 1;
+      out << "  " << clusterDummies[lastIndex] << " -> "
+          << finalNodeName << " [penwidth=2.0];\n";
     }
   }
 
@@ -194,6 +221,8 @@ static std::string exportDir = "../exports/";
 static std::unique_ptr<CFG> currentCFG;
 static std::unique_ptr<EarleyParser> earleyParser;
 static std::unique_ptr<GLRParser> glrParser;
+
+static bool showLegendWindow = false;
 
 
 static void generateDotFileForGLRState(const GLRParser &parser, const std::string &filename) {
@@ -797,6 +826,10 @@ int main(int, char**)
     if (ImGui::Button("Show Graph")) {
       showGraphWindow = true;
     }
+    ImGui::SameLine();
+    if (ImGui::Button("Show Legend")) {
+      showLegendWindow = true;
+    }
 
     ImGui::End();
 
@@ -809,6 +842,17 @@ int main(int, char**)
       } else {
         ImGui::Text("No graph available.");
       }
+      ImGui::End();
+    }
+
+    if (showLegendWindow) {
+      ImGui::Begin("Legend", &showLegendWindow);
+      ImGui::Text("Earley Parser Color Legend:");
+      ImGui::BulletText("Red:    Predict");
+      ImGui::BulletText("Yellow: Scan");
+      ImGui::BulletText("Green:  Complete");
+      ImGui::BulletText("Accept: doublecircle, green node");
+      ImGui::BulletText("Reject: grey octagon node");
       ImGui::End();
     }
 

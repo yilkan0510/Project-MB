@@ -25,15 +25,24 @@ CFG::CFG(string Filename) {
 
     // productionRules
     for (const auto& production : j["Productions"]) {
+      string head = production["head"];
+      string body = "";
+      for (const auto &production : j["Productions"]) {
         string head = production["head"];
-        string body = "";
+        string body;
 
-        for (int i = 0; i < production["body"].size(); ++i) {
-            body += production["body"][i].get<string>();
+        for (auto &symJson : production["body"]) {
+          std::string sym = symJson.get<std::string>();
+          if (sym.size() != 1) {
+            cerr << "Error: multi-char symbol \"" << sym
+                 << "\" found. Only single-char symbols supported.\n";
+            exit(1);
+          }
+          body += sym; // e.g. "" + "A" => "A", then + "B" => "AB"
         }
 
-        // Add the production rule to the map
         productionRules[head].push_back(body);
+      }
     }
 
     // startSymbol

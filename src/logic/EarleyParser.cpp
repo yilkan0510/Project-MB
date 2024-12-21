@@ -8,6 +8,7 @@ EarleyParser::EarleyParser(const CFG &grammar) : cfg(grammar) {
 
 bool EarleyParser::parse(const std::string &input) {
   reset(input);
+  // Keep calling nextStep() until done
   while (!isDone()) {
     nextStep();
   }
@@ -17,12 +18,20 @@ bool EarleyParser::parse(const std::string &input) {
 void EarleyParser::reset(const std::string &input) {
   currentInput = input;
   size_t length = input.size();
+
+  // Clear the chart and resize for [0..length]
   chart.clear();
   chart.resize(length + 1);
 
-  // Augmented start: S' -> S
+  // Clear explanations for a fresh parse
+  stepExplanations.clear();
+
+  // Augment the grammar: S' -> S
   std::string augmented = startSymbol + "'";
+  // Insert the initial item into chart[0]
   chart[0].insert({augmented, cfg.getStartSymbol(), 0, 0});
+
+  // Apply PREDICT for chart[0]
   applyPredictComplete(0);
 
   currentPos = 0;
@@ -33,37 +42,53 @@ void EarleyParser::reset(const std::string &input) {
 bool EarleyParser::nextStep() {
   if (finished) return false;
 
-  // Before performing any logic, you know what position you're at:
-  // You can mention what you're about to do: scan if possible, or finish.
-  // But the actual explanation should come after you do the step.
-
+  // 1) If we still have characters in the input, perform SCAN
   if (currentPos < currentInput.size()) {
-    // SCAN step
     char c = currentInput[currentPos];
+
+    // SCAN
     std::vector<EarleyItem> items(chart[currentPos].begin(), chart[currentPos].end());
+    bool scannedSomething = false;
     for (auto &item : items) {
+      // If dot isn't at the end, check if next symbol is a terminal
       if (item.dotPos < item.body.size()) {
         char nextSym = item.body[item.dotPos];
         if (isTerminal(nextSym) && nextSym == c) {
           EarleyItem newItem = item;
           newItem.dotPos++;
           chart[currentPos+1].insert(newItem);
+          scannedSomething = true;
         }
       }
     }
-    applyPredictComplete(currentPos+1);
-    // Explanation for this step:
-    stepExplanations.push_back("Earley: Scanned character '" + std::string(1,c) +
-                               "' at position " + std::to_string(currentPos) +
-                               " and applied predict/complete rules.");
 
+    if (scannedSomething) {
+      stepExplanations.push_back(
+          "Chart[" + std::to_string(currentPos) +
+          "]: Scanned character '" + std::string(1,c) + "'"
+      );
+    } else {
+      stepExplanations.push_back(
+          "Chart[" + std::to_string(currentPos) +
+          "]: No terminal scanned (character '" + std::string(1,c) + "')"
+      );
+    }
+
+    // 2) Apply PREDICT/COMPLETE for chart[currentPos+1]
+    applyPredictComplete(currentPos+1);
+    stepExplanations.push_back(
+        "Chart[" + std::to_string(currentPos+1) +
+        "]: Applied predict/complete after scanning."
+    );
+
+    // Move to next position in the input
     currentPos++;
+
   } else {
-    // No more characters to scan, just finishing up
+    // No more input to scan, we finalize
     finished = true;
-    // Check acceptance
-    std::string augmented = startSymbol + "'";
     bool wasAccepted = false;
+    std::string augmented = startSymbol + "'";
     for (auto &item : chart[currentInput.size()]) {
       if (item.head == augmented && item.dotPos == item.body.size() && item.startIdx == 0) {
         accepted = true;
@@ -71,16 +96,17 @@ bool EarleyParser::nextStep() {
         break;
       }
     }
-
-    // Explanation for final step:
-    stepExplanations.push_back("Earley: Reached end of input. " +
-                               std::string(wasAccepted ? "Accepted" : "Rejected") +
-                               " the string.");
+    stepExplanations.push_back(
+        "Reached end of input. " +
+        std::string(wasAccepted ? "ACCEPTED" : "REJECTED")
+    );
   }
 
+  // 3) If we've just scanned the last char, we may need a final PREDICT/COMPLETE
   if (currentPos == currentInput.size() && !finished) {
     applyPredictComplete(currentPos);
     finished = true;
+
     bool wasAccepted = false;
     std::string augmented = startSymbol + "'";
     for (auto &item : chart[currentInput.size()]) {
@@ -90,16 +116,14 @@ bool EarleyParser::nextStep() {
         break;
       }
     }
-
-    // Another explanation if we finalize here:
-    stepExplanations.push_back("Earley: Completed final predict/complete at end. " +
-                               std::string(wasAccepted ? "Accepted" : "Rejected") +
-                               " the input.");
+    stepExplanations.push_back(
+        "Final completion at Chart[" + std::to_string(currentPos) + "]: " +
+        (wasAccepted ? "ACCEPTED" : "REJECTED")
+    );
   }
 
   return !finished;
 }
-
 
 bool EarleyParser::isDone() const {
   return finished;
@@ -109,14 +133,16 @@ bool EarleyParser::isAccepted() const {
   return accepted;
 }
 
+// This function does the PREDICT and COMPLETE for all items in chart[pos]
 void EarleyParser::applyPredictComplete(size_t pos) {
   bool changed = true;
   while (changed) {
     changed = false;
     std::vector<EarleyItem> items(chart[pos].begin(), chart[pos].end());
     for (auto &item : items) {
+      // If dotPos is not at the end, check next symbol
       if (item.dotPos < item.body.size()) {
-        // PREDICT
+        // PREDICT if next symbol is a non-terminal
         std::string sym(1, item.body[item.dotPos]);
         if (isNonTerminal(sym)) {
           const auto &rules = cfg.getProductionRules();
@@ -126,19 +152,35 @@ void EarleyParser::applyPredictComplete(size_t pos) {
               EarleyItem newItem{sym, rhs, 0, pos};
               if (chart[pos].insert(newItem).second) {
                 changed = true;
+                stepExplanations.push_back(
+                    "Predict: " + sym + " -> " + rhs +
+                    " at Chart[" + std::to_string(pos) + "]"
+                );
               }
             }
           }
         }
       } else {
-        // COMPLETE
-        complete(item, pos, changed);
+        // COMPLETE if dot is at end
+        bool wasChanged = false;
+        complete(item, pos, wasChanged);
+        if (wasChanged) {
+          changed = true;
+          // Add an explanation if needed here
+          stepExplanations.push_back(
+              "Complete: " + item.head + " -> " + item.body +
+              " (from Chart[" + std::to_string(item.startIdx) +
+              "] to Chart[" + std::to_string(pos) + "])"
+          );
+        }
       }
     }
   }
 }
 
+// COMPLETE rule
 void EarleyParser::complete(const EarleyItem &item, size_t pos, bool &changed) {
+  // For each item in chart[item.startIdx], if the dot points to 'item.head', move the dot forward
   for (auto &cand : chart[item.startIdx]) {
     if (cand.dotPos < cand.body.size()) {
       std::string nextSym(1, cand.body[cand.dotPos]);
@@ -153,6 +195,7 @@ void EarleyParser::complete(const EarleyItem &item, size_t pos, bool &changed) {
   }
 }
 
+// Utility checks
 bool EarleyParser::isNonTerminal(const std::string &symbol) const {
   return cfg.getNonTerminals().count(symbol) > 0;
 }

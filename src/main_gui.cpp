@@ -69,32 +69,69 @@ static void generateDotFileForGrammar(const CFG &cfg, const std::string &filenam
 
 static void generateDotFileForParserState(const EarleyParser &parser, const std::string &filename) {
   const auto &chart = parser.getChart();
+
   std::ofstream out(filename);
   out << "digraph EarleyChart {\n";
-  out << "rankdir=TB;\n"; // vertical
 
-  for (size_t i=0; i<chart.size(); i++) {
-    // Chart node
-    out << "Chart" << i << " [shape=box,label=\"Chart[" << i << "]\\n";
-    for (auto &it : chart[i]) {
-      std::string dotBody = it.body;
-      dotBody.insert(it.dotPos, "•");
-      out << it.head << "->" << dotBody << " (start=" << it.startIdx << ")\\l";
-    }
-    out << "\"];\n";
+  // Optionally choose vertical or horizontal
+  // rankdir=TB => top-to-bottom
+  // rankdir=LR => left-to-right
+  out << "  rankdir=LR;\n\n";
 
-    // Explanation node
-    if (i < parser.stepExplanations.size()) {
-      out << "ExplainEarley" << i << " [shape=note,label=\"" << parser.stepExplanations[i] << "\"];\n";
-      out << "Chart" << i << "->ExplainEarley" << i << ";\n";
+  // We'll create a subgraph cluster for each chart index
+  // And put each item in that cluster as a circle node
+  for (size_t i = 0; i < chart.size(); i++) {
+
+    // Start a cluster for Chart i
+    out << "  subgraph cluster_" << i << " {\n";
+    out << "    label=\"Chart[" << i << "]\";\n";
+    out << "    color=black;\n";  // border color for the cluster
+
+    // For layout aesthetics
+    out << "    style=\"rounded\";\n";
+    // or style=\"invis\" to hide the cluster box
+
+    // Now each item in chart[i] becomes a separate node
+    // We'll number them 0..N inside chart i
+    int itemIndex = 0;
+    for (const auto &item : chart[i]) {
+
+      // Node name: "Item_i_itemIndex"
+      std::string nodeName = "Item_" + std::to_string(i) + "_" + std::to_string(itemIndex);
+
+      // Build a label for the item
+      // e.g. "S -> •AB (start=0)"
+      std::string dotBody = item.body;
+      dotBody.insert(item.dotPos, "•");
+      std::string itemLabel = item.head + " -> " + dotBody +
+                              " (start=" + std::to_string(item.startIdx) + ")";
+
+      // Output the node
+      // shape=circle for the round “bubble” look
+      out << "    " << nodeName << " ["
+          << "shape=circle, "
+          << "label=\"" << itemLabel << "\""
+          << "];\n";
+
+      itemIndex++;
     }
 
-    if (i>0) {
-      out << "Chart" << (i-1) << "->Chart" << i << ";\n";
-    }
+    out << "  }\n\n"; // end of subgraph cluster
   }
+
+  // Now connect each cluster i-1 -> i
+  // We'll just do one arrow per cluster to cluster, though you could do more.
+  for (size_t i = 1; i < chart.size(); i++) {
+    out << "  cluster_" << (i - 1) << " -> cluster_" << i << " [style=bold];\n";
+  }
+
+  // Optionally, show some final “Accept” node if the parser is accepted, etc.
+  // But that might be handled in stepExplanations or an external node.
+
   out << "}\n";
+  out.close();
 }
+
 
 
 static void runDotToPng(const std::string &dotFile, const std::string &pngFile) {

@@ -69,68 +69,78 @@ static void generateDotFileForGrammar(const CFG &cfg, const std::string &filenam
 
 static void generateDotFileForParserState(const EarleyParser &parser, const std::string &filename) {
   const auto &chart = parser.getChart();
-
   std::ofstream out(filename);
-  out << "digraph EarleyChart {\n";
+  if (!out) {
+    std::cerr << "Cannot open file " << filename << " for writing.\n";
+    return;
+  }
 
-  // Optionally choose vertical or horizontal
-  // rankdir=TB => top-to-bottom
-  // rankdir=LR => left-to-right
+  out << "digraph EarleyChart {\n";
+  // Left-to-right columns
   out << "  rankdir=LR;\n\n";
 
-  // We'll create a subgraph cluster for each chart index
-  // And put each item in that cluster as a circle node
+  // We'll use subgraphs for each chart index
   for (size_t i = 0; i < chart.size(); i++) {
-
-    // Start a cluster for Chart i
+    // Create a subgraph cluster
     out << "  subgraph cluster_" << i << " {\n";
-    out << "    label=\"Chart[" << i << "]\";\n";
-    out << "    color=black;\n";  // border color for the cluster
+    out << "    label = \"Chart[" << i << "]\";\n";
+    out << "    color = black;\n";
+    out << "    style=\"rounded\";\n\n";  // round-corner box
 
-    // For layout aesthetics
-    out << "    style=\"rounded\";\n";
-    // or style=\"invis\" to hide the cluster box
-
-    // Now each item in chart[i] becomes a separate node
-    // We'll number them 0..N inside chart i
     int itemIndex = 0;
     for (const auto &item : chart[i]) {
-
-      // Node name: "Item_i_itemIndex"
+      // Node name
       std::string nodeName = "Item_" + std::to_string(i) + "_" + std::to_string(itemIndex);
 
-      // Build a label for the item
-      // e.g. "S -> •AB (start=0)"
+      // Insert the '•'
       std::string dotBody = item.body;
-      dotBody.insert(item.dotPos, "•");
-      std::string itemLabel = item.head + " -> " + dotBody +
-                              " (start=" + std::to_string(item.startIdx) + ")";
+      if (item.dotPos <= dotBody.size()) {
+        dotBody.insert(item.dotPos, "•");
+      }
 
-      // Output the node
-      // shape=circle for the round “bubble” look
-      out << "    " << nodeName << " ["
-          << "shape=circle, "
-          << "label=\"" << itemLabel << "\""
+      // Build a label: e.g. "S -> A•B (start=0)"
+      std::string itemLabel = item.head + " -> " + dotBody
+                              + " (start=" + std::to_string(item.startIdx) + ")";
+
+      // Choose a color based on a naive check:
+      // dotPos == 0 => "Predict" => red
+      // 0 < dotPos < body.size() => "Scan" => yellow
+      // dotPos == body.size() => "Complete" => green
+      std::string fillColor = "white";
+      if (item.dotPos == 0) {
+        fillColor = "red";   // Predict
+      } else if (item.dotPos < item.body.size()) {
+        fillColor = "yellow"; // Scan
+      } else {
+        fillColor = "green";  // Complete
+      }
+
+      out << "    " << nodeName
+          << " [shape=circle, label=\"" << itemLabel
+          << "\", style=filled, fillcolor=" << fillColor
           << "];\n";
 
       itemIndex++;
     }
 
-    out << "  }\n\n"; // end of subgraph cluster
+    out << "  }\n\n"; // close subgraph cluster
   }
 
-  // Now connect each cluster i-1 -> i
-  // We'll just do one arrow per cluster to cluster, though you could do more.
+  // Connect cluster_(i-1) to cluster_i with a single arrow for left->right layout
   for (size_t i = 1; i < chart.size(); i++) {
-    out << "  cluster_" << (i - 1) << " -> cluster_" << i << " [style=bold];\n";
+    // If both charts have at least one item, link the first item of (i-1) to first of i
+    if (!chart[i-1].empty() && !chart[i].empty()) {
+      std::string fromNode = "Item_" + std::to_string(i-1) + "_0";
+      std::string toNode   = "Item_" + std::to_string(i)   + "_0";
+      out << "  " << fromNode << " -> " << toNode
+          << " [style=bold, color=black, penwidth=2.0];\n";
+    }
   }
-
-  // Optionally, show some final “Accept” node if the parser is accepted, etc.
-  // But that might be handled in stepExplanations or an external node.
 
   out << "}\n";
   out.close();
 }
+
 
 
 

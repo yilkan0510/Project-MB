@@ -9,8 +9,7 @@
 CFG::CFG(std::string Filename) {
   std::ifstream input(Filename);
   if (!input) {
-    std::cerr << "Unable to open file " << Filename << std::endl;
-    exit(1);
+    throw std::runtime_error("Unable to open file " + Filename);
   }
   nlohmann::json j;
   input >> j;
@@ -25,8 +24,7 @@ CFG::CFG(std::string Filename) {
     // If your grammar supports multi-char terminals, you need a different approach.
     std::string t = terminal.get<std::string>();
     if (t.size() != 1) {
-      std::cerr << "Error: Terminal \"" << t << "\" is not a single character.\n";
-      exit(1);
+      throw std::runtime_error("Terminal \"" + t + "\" not single-char!");
     }
     terminals.insert(t[0]);
   }
@@ -44,9 +42,7 @@ CFG::CFG(std::string Filename) {
       // If your grammar truly only allows single-char symbols in the body,
       // check sym.size() == 1:
       if (sym.size() != 1) {
-        std::cerr << "Error: multi-char symbol \"" << sym
-                  << "\" found. Only single-char symbols supported.\n";
-        exit(1);
+        throw std::runtime_error("Error: multi-char symbol \"" + sym + "\" found. Only single-char symbols supported.\n");
       }
       body += sym;
     }

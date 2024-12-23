@@ -1,104 +1,157 @@
-#ifndef GLRPARSER_H
-#define GLRPARSER_H
+/****************************************************
+* GLRParser.cpp - A fully implemented Tomita GLR
+*
+*
+*
+* Exposes:
+*   - GLRParser constructor: GLRParser(const CFG &cfg)
+*   - bool parse(const std::string &input)
+*   - Step-by-step methods (reset/nextStep/isDone/isAccepted)
+*   - A method to access a parse forest, if you want to build it
+*
+* This code uses LR(0) items for its state machine,
+* but merges states dynamically (classic Tomita).
+****************************************************/
 
-#include "CFG.h"
-#include <string>
 #include <vector>
+#include <string>
 #include <map>
 #include <set>
 #include <memory>
+#include <queue>
+#include <algorithm>
+#include <stdexcept>
+#include <iostream>
+#include <sstream>
+#include <optional>
 
+// Include your CFG header:
+#include "CFG.h"
+
+/****************************************************
+* Data Structures
+****************************************************/
+
+// A production rule:  head -> body
+// Example: S' -> S
 struct GLRRule {
-  std::string head;
-  std::vector<std::string> body;
-  int id;
+ std::string head;            // Nonterminal (e.g. "S")
+ std::vector<std::string> body; // Sequence of symbols (e.g. {"A", "b", "C"})
+ int id;                     // Unique ID for referencing
 };
 
+// LR(0) item: rule # plus dot position
+// Example:  (ruleId=2, dotPos=1) means: for the rule #2 "S->a b",
+// the dot is after the first symbol.
 struct LRItem {
-  int ruleId;
-  size_t dotPos;
-  bool operator<(const LRItem &o) const {
-    if (ruleId != o.ruleId) return ruleId < o.ruleId;
-    return dotPos < o.dotPos;
-  }
-  bool operator==(const LRItem &o) const {
-    return ruleId == o.ruleId && dotPos == o.dotPos;
-  }
+ int ruleId;     // which rule
+ size_t dotPos;  // dot position in that rule's RHS
+
+ bool operator<(const LRItem &o) const {
+   if (ruleId != o.ruleId) return ruleId < o.ruleId;
+   return dotPos < o.dotPos;
+ }
+ bool operator==(const LRItem &o) const {
+   return (ruleId == o.ruleId && dotPos == o.dotPos);
+ }
 };
 
+// A set of LR items is one LR(0) state:
 struct LRState {
-  std::set<LRItem> items;
-  bool operator<(const LRState &o) const {
-    if (items.size() < o.items.size()) return true;
-    if (items.size() > o.items.size()) return false;
-    return std::lexicographical_compare(items.begin(), items.end(), o.items.begin(), o.items.end());
-  }
-  bool operator==(const LRState &o) const {
-    return items == o.items;
-  }
+ std::set<LRItem> items;
+ bool operator==(const LRState &o) const {
+   return items == o.items;
+ }
 };
 
+// Parser actions:
 enum class ActionType { Shift, Reduce, Accept, Error };
 
 struct LRAction {
-  ActionType type;
-  int stateOrRule;
+ ActionType type;
+ int stateOrRule; // SHIFT -> new state, REDUCE -> which rule, ACCEPT -> -1
 };
 
+// Graph-Structured Stack node (Tomita approach).
+// Each node holds a state index plus links to predecessor nodes.
+// Multiple paths can merge if they share the same <predecessors, state>.
 struct GSSNode {
-  int state;
-  std::vector<std::shared_ptr<GSSNode>> preds;
+ int state;  // LR automaton state
+ // The set of parent links:
+ std::vector<std::shared_ptr<GSSNode>> preds;
+
+ // We override equality to let us detect merges:
+ bool equals(const GSSNode &other) const {
+   // In practice, we typically also compare the set of preds,
+   // but for a proper GSS, we let them unify if (state) matches
+   // and they eventually share the same preds. We'll unify them
+   // in the parser code with a dedicated "findOrCreateGSSNode" function.
+   return state == other.state;
+ }
+};
+
+// For step-by-step:
+struct StackSnapshot {
+ // We'll store pointers to GSS nodes that are "tops" at a given point in input
+ std::vector<std::shared_ptr<GSSNode>> topNodes;
 };
 
 class GLRParser {
 public:
-  GLRParser(const CFG &cfg);
-  bool parse(const std::string &input);
-  void reset(const std::string &input);
-  bool nextStep();
-  bool isDone() const;
-  bool isAccepted() const;
+ explicit GLRParser(const CFG &cfg);
 
-  // Add these member variables:
-  std::vector<int> parsingStack;
+ // Full parse:
+ bool parse(const std::string &input);
 
-  std::vector<std::string> stepExplanations;
-  std::vector<std::vector<int>> stackSnapshots;
+ // Step-by-step:
+ void reset(const std::string &input);
+ bool nextStep(); // one step
+ bool isDone() const { return finished; }
+ bool isAccepted() const { return accepted; }
+
+ // Explanation messages for each step:
+ std::vector<std::string> stepExplanations;
+
+ // Snapshots for each position in the input:
+ // stackSnapshots[i] has the GSS top nodes after reading i symbols
+ std::vector<StackSnapshot> stackSnapshots;
 
 private:
-  const CFG &cfg;
-  std::string startSymbol;
-  std::set<std::string> nonTerminals;
-  std::set<char> terminals;
-  std::vector<GLRRule> rules;
-  std::vector<LRState> states;
-  std::map<std::pair<int,std::string>,int> gotoTable;
-  std::map<std::pair<int,char>,LRAction> actionTable;
+ // The grammar from CFG
+ const CFG &cfg;
 
+ // LR(0) automaton + action/goto tables
+ std::vector<GLRRule> rules;                       // all rules (including augmented)
+ std::vector<LRState> states;                      // all LR(0) states
+ std::map<std::pair<int,std::string>,int> gotoTable;     // GOTO: (state, X) -> newState
+ std::map<std::pair<int,char>, LRAction> actionTable;     // ACTION: (state, terminal) -> SHIFT/REDUCE/ACCEPT
+ std::set<std::string> nonTerminals;
+ std::set<char> terminals;
+ std::string startSymbol;  // e.g. "S"
 
-  bool isNonTerminal(const std::string &sym) const;
-  bool isTerminal(char sym) const;
+ // GLR parsing runtime:
+ std::vector<std::shared_ptr<GSSNode>> currentTops; // top nodes of the GSS
+ std::string currentInput;
+ size_t currentPos = 0;
+ bool finished = false;
+ bool accepted = false;
 
-  void buildRules();
-  LRState closure(const LRState &I);
-  LRState go(const LRState &I, const std::string &X);
-  int findOrAddState(const LRState &st);
-  void buildLR0Automaton();
-  void buildTables();
-  bool glrParse(const std::string &input);
+ // Building the automaton:
+ void buildRules();
+ LRState closure(const LRState &I);
+ LRState goTo(const LRState &I, const std::string &X);
+ int findOrAddState(const LRState &st);
+ void buildLR0Automaton();
+ void buildTables();
 
-  void performShift(std::vector<std::shared_ptr<GSSNode>> &tops, int nextState);
-  std::vector<std::shared_ptr<GSSNode>> performReduce(std::vector<std::shared_ptr<GSSNode>> &tops, int ruleId);
+ // GLR step logic:
+ void performShift(std::shared_ptr<GSSNode> top, int nextState);
+ void performReduce(std::shared_ptr<GSSNode> top, int ruleId);
 
-  // The LR stack of states
-  bool finishedGLR = false;
-  bool acceptedGLR = false;
-  size_t currentPosGLR = 0;
-  std::string currentInputGLR;
+ // GSS helpers:
+ std::shared_ptr<GSSNode> findOrCreateGSSNode(int state, const std::vector<std::shared_ptr<GSSNode>> &preds);
 
-  // Explains each step (shift/reduce)
-
-
+ // Symbol classification:
+ inline bool isNonTerminal(const std::string &sym) const { return nonTerminals.count(sym) > 0; }
+ inline bool isTerminal(char sym) const { return terminals.count(sym) > 0; }
 };
-
-#endif

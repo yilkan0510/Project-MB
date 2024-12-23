@@ -5,7 +5,7 @@
     {"head": "A", "body": ["a"]},
     {"head": "B", "body": ["b"]},
     {"head": "B", "body": ["c"]},
-    {"head": "S", "body": ["A", "B"]}
+    {"head": "S", "body": ["A","B"]}
   ],
   "Start": "S"
 }

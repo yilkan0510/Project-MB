@@ -166,68 +166,19 @@ void generateDotFileForGLRParser(const GLRParser &parser, const std::string &fil
     return;
   }
 
+  // Minimal placeholder DOT
   out << "digraph GLR {\n";
   out << "  rankdir=LR;\n\n";
+  out << "  // ----- PLACEHOLDER GLR GRAPHVIZ -----\n";
+  out << "  // Replace this with your actual GLR visualization later.\n\n";
 
-  const auto &snapshots = parser.stackSnapshots;
-  size_t nCols = snapshots.size();
-
-  std::vector<std::string> dummyNodes(nCols);
-
-  for (size_t i = 0; i < nCols; i++) {
-    out << "  subgraph cluster_" << i << " {\n";
-    out << "    label = \"Pos[" << i << "]\";\n";
-    out << "    color=black;\n";
-    out << "    style=\"rounded\";\n\n";
-
-    std::string dummyName = "dummy_" + std::to_string(i);
-    dummyNodes[i] = dummyName;
-    out << "    " << dummyName << " [shape=point, style=invis, label=\"\"];\n\n";
-
-    const auto &stackStates = snapshots[i];
-    std::string prevNode;
-    for (size_t s = 0; s < stackStates.size(); s++) {
-      int st = stackStates[s];
-      std::string nodeName = "Stack_" + std::to_string(i) + "_" + std::to_string(s);
-
-      out << "    " << nodeName
-          << " [shape=circle, style=filled, fillcolor=white, "
-          << "label=\"State " << st << "\"];\n";
-
-      if (!prevNode.empty()) {
-        out << "    " << nodeName << " -> " << prevNode
-            << " [style=dotted, arrowhead=none];\n";
-      }
-      prevNode = nodeName;
-    }
-
-    out << "  }\n\n";
-  }
-
-  for (size_t i = 1; i < nCols; i++) {
-    out << "  " << dummyNodes[i-1] << " -> " << dummyNodes[i]
-        << " [style=bold, penwidth=2.0];\n";
-  }
-
-  if (parser.isDone()) {
-    bool accepted = parser.isAccepted();
-    std::string finalLabel = accepted ? "Accepted" : "Rejected";
-    std::string shape = accepted ? "doublecircle" : "octagon";
-    std::string color = accepted ? "green" : "grey";
-
-    out << "  " << finalLabel << " [shape=" << shape
-        << ", style=filled, fillcolor=" << color
-        << ", label=\"" << finalLabel << "\"];\n";
-
-    if (nCols > 0) {
-      out << "  " << dummyNodes[nCols - 1] << " -> " << finalLabel
-          << " [penwidth=2.0];\n";
-    }
-  }
-
+  // A single node or message to show that the functionality is not yet implemented.
+  out << "  PlaceholderNode [shape=box, style=filled, fillcolor=\"#CCCCCC\", label=\"GLR Parser Visualization\\n(Under Construction)\"];\n";
   out << "}\n";
+
   out.close();
 }
+
 
 // Convert dot to png
 static void runDotToPng(const std::string &dotFile, const std::string &pngFile) {
@@ -279,6 +230,8 @@ static std::unique_ptr<EarleyParser> earleyParser;
 static std::unique_ptr<GLRParser> glrParser;
 
 static bool showLegendWindow = false;
+
+static int exportChoice = 0; // 0=Grammar, 1=Earley, 2=GLR
 
 //////////////////////////////////////////////////////////////////////////////////////
 // Refresh listing
@@ -478,90 +431,110 @@ int main(int, char**)
       ImGui::EndMainMenuBar();
     }
 
-    // Import Window
-    if (importMenuOpen) {
-      ImGui::Begin("Import CFG", &importMenuOpen);
-      ImGui::Text("Select a grammar from %s", grammarsDir.c_str());
-      for (auto &g : availableGrammars) {
-        if (ImGui::Button(g.c_str())) {
-          std::string path = grammarsDir + g;
-          strncpy(grammarPath, path.c_str(), sizeof(grammarPath));
-          importMenuOpen = false;
-        }
-      }
-      ImGui::End();
-    }
-
     // Export Window
     if (exportMenuOpen) {
       ImGui::Begin("Export", &exportMenuOpen);
+
+      // 1) Base name input
       ImGui::InputText("Base Name", exportBaseName, IM_ARRAYSIZE(exportBaseName));
+
+      // 2) Let user pick what to export
+      static int exportChoice = 0; // 0=Grammar, 1=Earley, 2=GLR
+      ImGui::Text("Select Graph to Export:");
+      ImGui::RadioButton("Grammar", &exportChoice, 0);
+      ImGui::SameLine();
+      ImGui::RadioButton("Earley", &exportChoice, 1);
+      ImGui::SameLine();
+      ImGui::RadioButton("GLR", &exportChoice, 2);
+
+      // 3) Export button
       if (ImGui::Button("Export Now")) {
         if (currentCFG) {
-          // Build JSON
+          // 3a) Build JSON export of the CFG
           std::string jsonExport = exportDir + std::string(exportBaseName) + ".json";
           {
             std::ofstream out(jsonExport);
-            if(out) {
-              // Just mimic your currentCFG -> JSON
-              // or call saveCFGToJSON if you had one
-              // We'll do a simplistic approach:
+            if (!out) {
+              std::cerr << "Failed to open file " << jsonExport << " for writing!\n";
+            } else {
+              // Dump the CFG to JSON
               out << "{\n";
               out << "  \"Variables\": [";
-              bool first=true;
-              for (auto &v : currentCFG->getNonTerminals()) {
+              bool first = true;
+              for (const auto &v : currentCFG->getNonTerminals()) {
                 if (!first) out << ", ";
                 out << "\"" << v << "\"";
-                first=false;
+                first = false;
               }
               out << "],\n";
+
               out << "  \"Terminals\": [";
-              first=true;
+              first = true;
               for (auto t : currentCFG->getTerminals()) {
                 if (!first) out << ", ";
                 out << "\"" << t << "\"";
-                first=false;
+                first = false;
               }
               out << "],\n";
+
               out << "  \"Productions\": [\n";
-              bool firstOuter=true;
+              bool firstOuter = true;
               for (auto &rule : currentCFG->getProductionRules()) {
                 for (auto &body : rule.second) {
                   if (!firstOuter) out << ",\n";
                   out << "    {\"head\": \"" << rule.first << "\", \"body\": [";
-                  bool firstInner=true;
-                  for (auto &c : body) {
-                    if(!firstInner) out << ", ";
+                  bool firstInner = true;
+                  for (char c : body) {
+                    if (!firstInner) out << ", ";
                     out << "\"" << c << "\"";
-                    firstInner=false;
+                    firstInner = false;
                   }
                   out << "]}";
                   firstOuter = false;
                 }
               }
               out << "\n  ],\n";
+
               out << "  \"Start\": \"" << currentCFG->getStartSymbol() << "\"\n";
               out << "}\n";
             }
           }
 
-          // Dot & png export
+          // 3b) Build the DOT file, depending on user's choice
           std::string dotExport = exportDir + std::string(exportBaseName) + ".dot";
-          // We'll just do the grammar or earley:
-          if (stepByStepEarley && earleyParser) {
-            generateDotFileForParserState(*earleyParser, dotExport);
-          } else {
-            // fallback: just the grammar
+          switch(exportChoice) {
+          case 0: // Grammar
             generateDotFileForGrammar(*currentCFG, dotExport);
+            break;
+          case 1: // Earley
+            if (earleyParser) {
+              generateDotFileForParserState(*earleyParser, dotExport);
+            } else {
+              ImGui::Text("No Earley parser loaded!");
+            }
+            break;
+          case 2: // GLR
+            if (glrParser) {
+              generateDotFileForGLRParser(*glrParser, dotExport);
+            } else {
+              ImGui::Text("No GLR parser loaded!");
+            }
+            break;
           }
+
+          // 3c) Convert DOT -> PNG
           std::string pngExport = exportDir + std::string(exportBaseName) + ".png";
           std::string cmd = "dot -Tpng -o " + pngExport + " " + dotExport;
           system(cmd.c_str());
         }
+
+        // Close export menu after finishing
         exportMenuOpen = false;
       }
+
       ImGui::End();
     }
+
 
     // CFG Maker Window
     if (cfgMakerOpen) {
@@ -728,10 +701,12 @@ int main(int, char**)
         stepByStepGLR=false;
         glrFinished=false;
         updateGraphVisualization();
-      }catch(...){
-        parseResultEarley="Failed to load grammar";
-        parseResultGLR="Failed to load grammar";
+      }catch(const std::exception &e) {
+        parseResultEarley = "Failed to load grammar: ";
+        parseResultEarley += e.what();
+        parseResultGLR = parseResultEarley;
       }
+
     }
 
     ImGui::InputText("Input String", inputString, IM_ARRAYSIZE(inputString));

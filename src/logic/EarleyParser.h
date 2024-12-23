@@ -1,65 +1,105 @@
-#ifndef EARLYPARSER_H
-#define EARLYPARSER_H
+/**************************************************
+* EarleyParser.cpp - Rewritten Full Earley Parser
+*
+* Usage:
+*   #include "EarleyParser.cpp" // or compile separately
+*   EarleyParser parser(cfg);
+*   bool ok = parser.parse("abba");
+*
+* Features:
+*   - Step-by-step or one-shot parse
+*   - Chart-based approach
+*   - Single-character tokens
+*   - Augmented grammar for acceptance
+*   - Detailed stepExplanations for each stage
+**************************************************/
 
-#include "CFG.h"
-#include <string>
 #include <vector>
 #include <set>
+#include <string>
+#include <stdexcept>
+#include <algorithm>
+#include <sstream>
+#include <iostream>
 
+// Include your existing CFG class header:
+#include "CFG.h"
+
+/**************************************************
+* Data Structures
+**************************************************/
+
+// An Earley item: A -> α • β, startIndex
+// `head` = A, `body` = αβ, `dotPos` is where the "•" is.
+// `startIdx` is which chart column the item originated from.
 struct EarleyItem {
-  std::string head;
-  std::string body;
-  size_t dotPos;
-  size_t startIdx;
+ std::string head;  // e.g. "S"
+ std::string body;  // e.g. "aB" (string of symbols)
+ size_t dotPos;     // dot position in the body
+ size_t startIdx;   // index of the chart where this item began
 
-  bool operator<(const EarleyItem &other) const {
-    if (head != other.head) return head < other.head;
-    if (body != other.body) return body < other.body;
-    if (dotPos != other.dotPos) return dotPos < other.dotPos;
-    return startIdx < other.startIdx;
-  }
-  bool operator==(const EarleyItem &other) const {
-    return head == other.head && body == other.body &&
-           dotPos == other.dotPos && startIdx == other.startIdx;
-  }
+ bool operator<(const EarleyItem &o) const {
+   if (head != o.head) return head < o.head;
+   if (body != o.body) return body < o.body;
+   if (dotPos != o.dotPos) return dotPos < o.dotPos;
+   return startIdx < o.startIdx;
+ }
+
+ bool operator==(const EarleyItem &o) const {
+   return head == o.head && body == o.body &&
+          dotPos == o.dotPos && startIdx == o.startIdx;
+ }
 };
 
+/**************************************************
+* Earley Parser Class
+**************************************************/
 class EarleyParser {
 public:
-  explicit EarleyParser(const CFG &grammar);
+ // Construct with reference to a CFG
+ explicit EarleyParser(const CFG &cfg);
 
-  // Full parse: runs the entire parser to completion
-  bool parse(const std::string &input);
+ // Parse the entire string at once
+ bool parse(const std::string &input);
 
-  // Step-by-step interface
-  void reset(const std::string &input);
-  bool nextStep();         // Advance one step
-  bool isDone() const;     // True if finished
-  bool isAccepted() const; // True if accepted
-  size_t getCurrentPos() const { return currentPos; }
+ // Step-by-step interface
+ void reset(const std::string &input);
+ bool nextStep(); // advances one step
+ bool isDone() const { return finished; }
+ bool isAccepted() const { return accepted; }
 
-  // The entire chart
-  const std::vector<std::set<EarleyItem>>& getChart() const { return chart; }
+ // Return the chart for external visualization
+ // chart[i] = set of items after i tokens consumed
+ const std::vector<std::set<EarleyItem>>& getChart() const { return chart; }
 
-  // Step explanations (public so your GUI code can access them)
-  std::vector<std::string> stepExplanations;
+ // Logging/explanations for each step
+ std::vector<std::string> stepExplanations;
 
 private:
-  const CFG &cfg;
-  std::string startSymbol;
+ const CFG &cfg;
 
-  // Parser state
-  std::string currentInput;
-  std::vector<std::set<EarleyItem>> chart;
-  size_t currentPos;
-  bool finished;
-  bool accepted;
+ // Storing the grammar’s start symbol + an augmented start symbol
+ std::string startSymbol;     // e.g. "S"
+ std::string augmentedSymbol; // e.g. "S'"
 
-  // Helpers
-  bool isNonTerminal(const std::string &symbol) const;
-  bool isTerminal(char symbol) const;
-  void applyPredictComplete(size_t pos);
-  void complete(const EarleyItem &item, size_t pos, bool &changed);
+ // The input string (plus we handle it char-by-char)
+ std::string currentInput;
+
+ // The chart: for an input of length n, we have chart[0..n]
+ std::vector<std::set<EarleyItem>> chart;
+
+ // The current position in the input
+ size_t currentPos = 0;
+
+ // Whether we've finished this parse and accepted or not
+ bool finished = false;
+ bool accepted = false;
+
+ // Helpers for scanning, predicting, completing
+ bool isNonTerminal(const std::string &symbol) const;
+ bool isTerminal(char symbol) const;
+
+ // Step subroutines
+ void scan(char nextChar);
+ void predictAndComplete(size_t pos);
 };
-
-#endif
